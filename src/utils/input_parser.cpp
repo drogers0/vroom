@@ -523,7 +523,8 @@ inline Job get_job(const rapidjson::Value& json_job, unsigned amount_size) {
              get_time_windows(json_job, "job"),
              get_string(json_job, "description"),
              get_duration_per_type(json_job, "setup_per_type", "job"),
-             get_duration_per_type(json_job, "service_per_type", "job"));
+             get_duration_per_type(json_job, "service_per_type", "job"),
+             get_value_for<UserDuration>(json_job, "target_time"));
 }
 
 template <class T> inline Matrix<T> get_matrix(rapidjson::Value& m) {
@@ -637,7 +638,8 @@ void parse(Input& input, const std::string& input_str, bool geometry) {
                                              "pickup"),
                        get_duration_per_type(json_pickup,
                                              "service_per_type",
-                                             "pickup"));
+                                             "pickup"),
+                       get_value_for<UserDuration>(json_pickup, "target_time"));
 
       // Defining delivery job.
       auto& json_delivery = json_shipment["delivery"];
@@ -658,7 +660,8 @@ void parse(Input& input, const std::string& input_str, bool geometry) {
                                                "delivery"),
                          get_duration_per_type(json_delivery,
                                                "service_per_type",
-                                               "delivery"));
+                                               "delivery"),
+                         get_value_for<UserDuration>(json_delivery, "target_time"));
 
       input.add_shipment(pickup, delivery);
     }
@@ -694,6 +697,126 @@ void parse(Input& input, const std::string& input_str, bool geometry) {
       input.set_durations_matrix(DEFAULT_PROFILE,
                                  get_matrix<UserDuration>(
                                    json_input["matrix"]));
+    }
+  }
+
+  // Parse options.
+  if (json_input.HasMember("options")) {
+    if (!json_input["options"].IsObject()) {
+      throw InputException("Invalid options: expected an object.");
+    }
+    const auto& json_options = json_input["options"];
+
+    if (json_options.HasMember("timing_objective")) {
+      if (!json_options["timing_objective"].IsObject()) {
+        throw InputException("Invalid timing_objective: expected an object.");
+      }
+      const auto& json_to = json_options["timing_objective"];
+
+      TimingObjective obj;
+
+      // Parse mode.
+      const auto mode_str = get_string(json_to, "mode");
+      if (mode_str == "weighted") {
+        obj.mode = TIMING_MODE::WEIGHTED;
+      } else if (mode_str == "hierarchical" || mode_str.empty()) {
+        obj.mode = TIMING_MODE::HIERARCHICAL;
+      } else {
+        throw InputException("Invalid timing_objective mode: " + mode_str +
+                             ".");
+      }
+
+      // Helper to map objective name to enum.
+      auto parse_obj_name = [](const std::string& name) -> TIMING_OBJ {
+        if (name == "makespan") {
+          return TIMING_OBJ::MAKESPAN;
+        }
+        if (name == "target_time") {
+          return TIMING_OBJ::TARGET_TIME;
+        }
+        if (name == "shipment_span") {
+          return TIMING_OBJ::SHIPMENT_SPAN;
+        }
+        throw InputException("Invalid timing objective: " + name + ".");
+      };
+
+      // Parse objectives (for hierarchical mode).
+      if (json_to.HasMember("objectives")) {
+        if (!json_to["objectives"].IsArray()) {
+          throw InputException(
+            "Invalid timing_objective objectives: expected an array.");
+        }
+        obj.objectives.clear();
+        for (rapidjson::SizeType i = 0; i < json_to["objectives"].Size(); ++i) {
+          if (!json_to["objectives"][i].IsString()) {
+            throw InputException(
+              "Invalid entry in timing_objective objectives: expected a "
+              "string.");
+          }
+          obj.objectives.push_back(
+            parse_obj_name(json_to["objectives"][i].GetString()));
+        }
+        if (obj.objectives.empty()) {
+          throw InputException("Empty timing_objective objectives array.");
+        }
+        // Check for duplicate objectives.
+        std::uint8_t seen = 0;
+        for (const auto& o : obj.objectives) {
+          const auto bit =
+            static_cast<std::uint8_t>(1 << static_cast<std::uint8_t>(o));
+          if ((seen & bit) != 0) {
+            throw InputException(
+              "Duplicate entry in timing_objective objectives.");
+          }
+          seen |= bit;
+        }
+      }
+
+      // Parse weights (for weighted mode).
+      if (json_to.HasMember("weights")) {
+        if (!json_to["weights"].IsObject()) {
+          throw InputException(
+            "Invalid timing_objective weights: expected an object.");
+        }
+        for (auto& entry : json_to["weights"].GetObject()) {
+          if (!entry.value.IsNumber()) {
+            throw InputException(
+              std::format("Invalid weight for {}.", entry.name.GetString()));
+          }
+          const double w = entry.value.GetDouble();
+          if (w < 0) {
+            throw InputException(
+              std::format("Invalid weight for {}.", entry.name.GetString()));
+          }
+          obj.set_weight(parse_obj_name(entry.name.GetString()), w);
+        }
+      }
+
+      // Validate mode-specific requirements.
+      if (obj.mode == TIMING_MODE::WEIGHTED) {
+        if (json_to.HasMember("objectives")) {
+          throw InputException(
+            "\"objectives\" key is not used in weighted mode.");
+        }
+        bool has_nonzero_weight = false;
+        for (unsigned i = 0; i < NB_TIMING_OBJ; ++i) {
+          if (obj.weights[i] > 0) {
+            has_nonzero_weight = true;
+            break;
+          }
+        }
+        if (!has_nonzero_weight) {
+          throw InputException(
+            "Weighted timing_objective requires at least one positive weight.");
+        }
+      } else {
+        if (json_to.HasMember("weights")) {
+          throw InputException(
+            "\"weights\" key is not used in hierarchical mode.");
+        }
+      }
+
+      input.set_timing_objective(std::move(obj));
     }
   }
 }

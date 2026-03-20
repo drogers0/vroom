@@ -70,6 +70,7 @@ A `job` object has the following properties:
 | [`skills`] | an array of integers defining mandatory skills |
 | [`priority`] | an integer in the `[0, 100]` range describing priority level (defaults to 0) |
 | [`time_windows`] | an array of `time_window` objects describing valid slots for job service start |
+| [`target_time`] | preferred service start time (best-effort bias, requires libglpk) |
 
 An error is reported if two `job` objects have the same `id`.
 
@@ -98,6 +99,7 @@ A `shipment_step` is similar to a `job` object (expect for shared keys already p
 | [`setup_per_type`] | object mapping vehicle types to task setup duration values |
 | [`service_per_type`] | object mapping vehicle types to task service duration values |
 | [`time_windows`] | an array of `time_window` objects describing valid slots for task service start |
+| [`target_time`] | preferred service start time (best-effort bias, requires libglpk) |
 
 An error is reported if two `delivery` (resp. `pickup`) objects have the same `id`.
 
@@ -430,6 +432,8 @@ A `step` object has the following properties:
 | ~~[`job`]~~ | ~~id of the job performed at this step, only provided if `type` value is `job`~~ |
 | [`load`] | vehicle load after step completion (with capacity constraints) |
 | [`distance`]* | traveled distance upon arrival at this step |
+| [`target_lead`] | time between arrival and `target_time`, only provided if positive |
+| [`target_delay`] | time between `target_time` and arrival, only provided if positive |
 
 *: provided when using the `-g` flag.
 

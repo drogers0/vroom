@@ -688,13 +688,22 @@ void check_no_empty_keys(const TypeToDurationMap& type_to_duration,
 using RawSolution = std::vector<RawRoute>;
 using TWSolution = std::vector<TWRoute>;
 
-Solution format_solution(const Input& input, const RawSolution& raw_routes);
+Route format_route_simple(const Input& input,
+                          Index vehicle_rank,
+                          const RawRoute& raw_route,
+                          std::unordered_set<Index>& unassigned_ranks);
+
+Solution format_solution(const Input& input,
+                         const RawSolution& raw_routes,
+                         unsigned nb_thread = 1);
 
 Route format_route(const Input& input,
                    const TWRoute& tw_r,
                    std::unordered_set<Index>& unassigned_ranks);
 
-Solution format_solution(const Input& input, const TWSolution& tw_routes);
+Solution format_solution(const Input& input,
+                         const TWSolution& tw_routes,
+                         unsigned nb_thread = 1);
 
 } // namespace vroom::utils
 

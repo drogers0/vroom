@@ -361,6 +361,13 @@ rapidjson::Value to_json(const Step& s,
                       get_violations(s.violations, allocator),
                       allocator);
 
+  if (s.target_lead > 0) {
+    json_step.AddMember("target_lead", s.target_lead, allocator);
+  }
+  if (s.target_delay > 0) {
+    json_step.AddMember("target_delay", s.target_delay, allocator);
+  }
+
   if (report_distances) {
     json_step.AddMember("distance", s.distance, allocator);
   }

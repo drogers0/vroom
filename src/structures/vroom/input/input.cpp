@@ -8,6 +8,7 @@ All rights reserved (see LICENSE).
 */
 
 #include <algorithm>
+#include <iostream>
 #include <mutex>
 #include <semaphore>
 #include <thread>
@@ -197,6 +198,21 @@ void Input::add_job(const Job& job) {
   jobs.push_back(job);
   check_job(jobs.back());
   _has_jobs = true;
+
+  if (job.target_time.has_value()) {
+    _has_target_time = true;
+    _has_TW = true;
+    const auto tt = job.target_time.value();
+    if (!std::ranges::any_of(job.tws, [&](const auto& tw) {
+          return tw.start <= tt && tt <= tw.end;
+        })) {
+      std::cerr << "[warning] target_time "
+                << utils::scale_to_user_duration(tt) << " for job " << job.id
+                << " falls outside all time windows; exact alignment is "
+                   "impossible."
+                << std::endl;
+    }
+  }
 }
 
 void Input::add_shipment(const Job& pickup, const Job& delivery) {
@@ -250,6 +266,28 @@ void Input::add_shipment(const Job& pickup, const Job& delivery) {
   jobs.push_back(delivery);
   check_job(jobs.back());
   _has_shipments = true;
+
+  if (pickup.target_time.has_value() || delivery.target_time.has_value()) {
+    _has_target_time = true;
+    _has_TW = true;
+    for (const auto* side : {&pickup, &delivery}) {
+      if (side->target_time.has_value()) {
+        const auto tt = side->target_time.value();
+        if (!std::ranges::any_of(side->tws, [&](const auto& tw) {
+              return tw.start <= tt && tt <= tw.end;
+            })) {
+          std::string type_str =
+            (side->type == JOB_TYPE::PICKUP) ? "pickup" : "delivery";
+          std::cerr << "[warning] target_time "
+                    << utils::scale_to_user_duration(tt) << " for " << type_str
+                    << " " << side->id
+                    << " falls outside all time windows; exact alignment is "
+                       "impossible."
+                    << std::endl;
+        }
+      }
+    }
+  }
 }
 
 void Input::add_vehicle(const Vehicle& vehicle) {
@@ -447,6 +485,23 @@ bool Input::has_jobs() const {
 
 bool Input::has_shipments() const {
   return _has_shipments;
+}
+
+bool Input::has_target_time() const {
+  return _has_target_time;
+}
+
+void Input::set_timing_objective(TimingObjective obj) {
+  _timing_objective = std::move(obj);
+  // Non-default timing objectives require the VRPTW solving path
+  // so that choose_ETA can optimize task times via MIP.
+  if (!_timing_objective.is_default()) {
+    _has_TW = true;
+  }
+}
+
+const TimingObjective& Input::timing_objective() const {
+  return _timing_objective;
 }
 
 bool Input::report_distances() const {

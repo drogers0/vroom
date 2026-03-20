@@ -36,6 +36,9 @@ struct Step {
 
   Violations violations;
 
+  UserDuration target_lead{0};
+  UserDuration target_delay{0};
+
   Step(STEP_TYPE type, Location location, Amount load);
 
   Step(const Job& job, UserDuration setup, UserDuration service, Amount load);

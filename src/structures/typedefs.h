@@ -117,6 +117,37 @@ enum class JOB_TYPE : std::uint8_t { SINGLE, PICKUP, DELIVERY };
 // Available location status.
 enum class STEP_TYPE : std::uint8_t { START, JOB, BREAK, END };
 
+// Timing objective options for task-time optimization.
+enum class TIMING_MODE : std::uint8_t { HIERARCHICAL, WEIGHTED };
+enum class TIMING_OBJ : std::uint8_t { MAKESPAN, TARGET_TIME, SHIPMENT_SPAN };
+constexpr unsigned NB_TIMING_OBJ = 3;
+static_assert(NB_TIMING_OBJ ==
+              static_cast<unsigned>(TIMING_OBJ::SHIPMENT_SPAN) + 1);
+constexpr std::array<TIMING_OBJ, NB_TIMING_OBJ> ALL_TIMING_OBJ =
+  {TIMING_OBJ::MAKESPAN, TIMING_OBJ::TARGET_TIME, TIMING_OBJ::SHIPMENT_SPAN};
+
+struct TimingObjective {
+  TIMING_MODE mode = TIMING_MODE::HIERARCHICAL;
+  std::vector<TIMING_OBJ> objectives = {TIMING_OBJ::MAKESPAN};
+  // Weights indexed by TIMING_OBJ ordinal (for weighted mode).
+  std::array<double, NB_TIMING_OBJ> weights = {0.0, 0.0, 0.0};
+
+  bool is_default() const {
+    return mode == TIMING_MODE::HIERARCHICAL && objectives.size() == 1 &&
+           objectives[0] == TIMING_OBJ::MAKESPAN;
+  }
+
+  double weight(TIMING_OBJ obj) const {
+    assert(static_cast<std::uint8_t>(obj) < NB_TIMING_OBJ);
+    return weights[static_cast<std::uint8_t>(obj)];
+  }
+
+  void set_weight(TIMING_OBJ obj, double w) {
+    assert(static_cast<std::uint8_t>(obj) < NB_TIMING_OBJ);
+    weights[static_cast<std::uint8_t>(obj)] = w;
+  }
+};
+
 // Heuristic options.
 enum class HEURISTIC : std::uint8_t { BASIC, DYNAMIC };
 enum class INIT : std::uint8_t {

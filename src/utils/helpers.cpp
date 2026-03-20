@@ -9,9 +9,15 @@ All rights reserved (see LICENSE).
 
 #include <algorithm>
 #include <chrono>
+#include <iostream>
+#include <mutex>
 #include <numeric>
 #include <sstream>
+#include <thread>
 
+#if USE_LIBGLPK
+#include "algorithms/validation/choose_ETA.h"
+#endif
 #include "utils/helpers.h"
 
 namespace vroom::utils {
@@ -156,166 +162,321 @@ inline std::vector<Job> get_unassigned_jobs_from_ranks(
   return unassigned_jobs;
 }
 
-Solution format_solution(const Input& input, const RawSolution& raw_routes) {
-  std::vector<Route> routes;
-  routes.reserve(raw_routes.size());
+Route format_route_simple(const Input& input,
+                          Index vehicle_rank,
+                          const RawRoute& raw_route,
+                          std::unordered_set<Index>& unassigned_ranks) {
+  const auto& route = raw_route.route;
+  const auto& v = input.vehicles[vehicle_rank];
 
+  assert(route.size() <= v.max_tasks);
+
+  auto previous_location = (v.has_start()) ? v.start.value().index()
+                                           : std::numeric_limits<Index>::max();
+  Eval eval_sum;
+  Duration setup = 0;
+  Duration service = 0;
+  Priority priority = 0;
+  Amount sum_pickups(input.zero_amount());
+  Amount sum_deliveries(input.zero_amount());
+#ifndef NDEBUG
+  std::unordered_set<Index> expected_delivery_ranks;
+#endif
+  Amount current_load = raw_route.job_deliveries_sum();
+  assert(current_load <= v.capacity);
+
+  // Steps for current route.
+  std::vector<Step> steps;
+  steps.reserve(route.size() + 2);
+
+  Duration ETA = 0;
+  const auto& first_job = input.jobs[route.front()];
+
+  // Handle start.
+  const auto start_loc = v.has_start() ? v.start.value() : first_job.location;
+  steps.emplace_back(STEP_TYPE::START, start_loc, current_load);
+  if (v.has_start()) {
+    const auto next_leg = v.eval(v.start.value().index(), first_job.index());
+    ETA += next_leg.duration;
+    eval_sum += next_leg;
+  }
+
+  // Handle jobs.
+  assert(input.vehicle_ok_with_job(vehicle_rank, route.front()));
+
+  const auto first_job_setup =
+    (first_job.index() == previous_location) ? 0 : first_job.setups[v.type];
+  setup += first_job_setup;
+  previous_location = first_job.index();
+
+  const auto first_job_service = first_job.services[v.type];
+  service += first_job_service;
+  priority += first_job.priority;
+
+  current_load += first_job.pickup;
+  current_load -= first_job.delivery;
+  sum_pickups += first_job.pickup;
+  sum_deliveries += first_job.delivery;
+  assert(current_load <= v.capacity);
+
+#ifndef NDEBUG
+  check_precedence(input, expected_delivery_ranks, route.front());
+#endif
+
+  steps.emplace_back(first_job,
+                     scale_to_user_duration(first_job_setup),
+                     scale_to_user_duration(first_job_service),
+                     current_load);
+  auto& first = steps.back();
+  first.duration = scale_to_user_duration(ETA);
+  first.distance = eval_sum.distance;
+  first.arrival = scale_to_user_duration(ETA);
+  ETA += (first_job_setup + first_job_service);
+  unassigned_ranks.erase(route.front());
+
+  for (std::size_t r = 0; r < route.size() - 1; ++r) {
+    assert(input.vehicle_ok_with_job(vehicle_rank, route[r + 1]));
+    const auto next_leg =
+      v.eval(input.jobs[route[r]].index(), input.jobs[route[r + 1]].index());
+    ETA += next_leg.duration;
+    eval_sum += next_leg;
+
+    const auto& current_job = input.jobs[route[r + 1]];
+
+    const auto current_setup = (current_job.index() == previous_location)
+                                 ? 0
+                                 : current_job.setups[v.type];
+    setup += current_setup;
+    previous_location = current_job.index();
+
+    const auto current_service = current_job.services[v.type];
+    service += current_service;
+    priority += current_job.priority;
+
+    current_load += current_job.pickup;
+    current_load -= current_job.delivery;
+    sum_pickups += current_job.pickup;
+    sum_deliveries += current_job.delivery;
+    assert(current_load <= v.capacity);
+
+#ifndef NDEBUG
+    check_precedence(input, expected_delivery_ranks, route[r + 1]);
+#endif
+
+    steps.emplace_back(current_job,
+                       scale_to_user_duration(current_setup),
+                       scale_to_user_duration(current_service),
+                       current_load);
+    auto& current = steps.back();
+    current.duration = scale_to_user_duration(eval_sum.duration);
+    current.distance = eval_sum.distance;
+    current.arrival = scale_to_user_duration(ETA);
+    ETA += (current_setup + current_service);
+    unassigned_ranks.erase(route[r + 1]);
+  }
+
+  // Handle end.
+  const auto& last_job = input.jobs[route.back()];
+  const auto end_loc = v.has_end() ? v.end.value() : last_job.location;
+  steps.emplace_back(STEP_TYPE::END, end_loc, current_load);
+  if (v.has_end()) {
+    const auto next_leg = v.eval(last_job.index(), v.end.value().index());
+    ETA += next_leg.duration;
+    eval_sum += next_leg;
+  }
+  auto& last = steps.back();
+  last.duration = scale_to_user_duration(eval_sum.duration);
+  last.distance = eval_sum.distance;
+  last.arrival = scale_to_user_duration(ETA);
+
+  assert(expected_delivery_ranks.empty());
+  assert(v.ok_for_range_bounds(eval_sum));
+
+  assert(v.fixed_cost() % (DURATION_FACTOR * COST_FACTOR) == 0);
+  const UserCost user_fixed_cost = scale_to_user_cost(v.fixed_cost());
+  const UserCost user_travel_cost = scale_to_user_cost(eval_sum.cost);
+  const UserCost user_task_cost =
+    scale_to_user_cost(v.task_cost(setup + service));
+
+  return Route(v.id,
+               std::move(steps),
+               user_fixed_cost + user_travel_cost + user_task_cost,
+               scale_to_user_duration(eval_sum.duration),
+               eval_sum.distance,
+               scale_to_user_duration(setup),
+               scale_to_user_duration(service),
+               0,
+               priority,
+               sum_deliveries,
+               sum_pickups,
+               v.profile,
+               v.description);
+}
+
+#if USE_LIBGLPK
+std::vector<VehicleStep> raw_route_to_vehicle_steps(
+  const Input& input,
+  const std::vector<Index>& route) {
+  std::vector<VehicleStep> steps;
+  steps.reserve(route.size() + 2);
+
+  steps.emplace_back(STEP_TYPE::START);
+  for (const auto job_rank : route) {
+    const auto& job = input.jobs[job_rank];
+    steps.emplace_back(job.type, job.id, ForcedService());
+    steps.back().rank = job_rank;
+  }
+  steps.emplace_back(STEP_TYPE::END);
+
+  return steps;
+}
+
+std::vector<VehicleStep> tw_route_to_vehicle_steps(const Input& input,
+                                                   const TWRoute& tw_r) {
+  const auto& v = input.vehicles[tw_r.v_rank];
+  std::vector<VehicleStep> steps;
+  steps.reserve(tw_r.route.size() + 2 + v.breaks.size());
+
+  steps.emplace_back(STEP_TYPE::START);
+
+  for (std::size_t r = 0; r <= tw_r.route.size(); ++r) {
+    // Insert breaks before job at rank r.
+    assert(tw_r.breaks_at_rank[r] <= tw_r.breaks_counts[r]);
+    Index break_rank = tw_r.breaks_counts[r] - tw_r.breaks_at_rank[r];
+    for (Index i = 0; i < tw_r.breaks_at_rank[r]; ++i, ++break_rank) {
+      const auto& b = v.breaks[break_rank];
+      steps.emplace_back(STEP_TYPE::BREAK, b.id, ForcedService());
+      steps.back().rank = break_rank;
+    }
+
+    // Insert job (except after the last rank, which is END).
+    if (r < tw_r.route.size()) {
+      const auto job_rank = tw_r.route[r];
+      const auto& job = input.jobs[job_rank];
+      steps.emplace_back(job.type, job.id, ForcedService());
+      steps.back().rank = job_rank;
+    }
+  }
+
+  steps.emplace_back(STEP_TYPE::END);
+
+  return steps;
+}
+#endif
+
+Solution format_solution(const Input& input,
+                         const RawSolution& raw_routes,
+                         unsigned nb_thread) {
   // All job ranks start with unassigned status.
   std::unordered_set<Index> unassigned_ranks;
   for (unsigned i = 0; i < input.jobs.size(); ++i) {
     unassigned_ranks.insert(i);
   }
 
+#if USE_LIBGLPK
+  if (input.has_target_time()) {
+    std::vector<std::size_t> target_route_indices;
+    std::vector<std::size_t> simple_route_indices;
+
+    for (std::size_t i = 0; i < raw_routes.size(); ++i) {
+      const auto& route = raw_routes[i].route;
+      if (route.empty()) {
+        continue;
+      }
+
+      bool has_target = std::ranges::any_of(route, [&](Index job_rank) {
+        return input.jobs[job_rank].target_time.has_value();
+      });
+
+      if (has_target) {
+        target_route_indices.push_back(i);
+      } else {
+        simple_route_indices.push_back(i);
+      }
+
+      // Mark all jobs as assigned regardless of path.
+      for (const auto job_rank : route) {
+        unassigned_ranks.erase(job_rank);
+      }
+    }
+
+    // Use a flat vector indexed by raw_routes position.
+    std::vector<Route> all_routes(raw_routes.size());
+
+    // Format simple routes (no MIP needed).
+    for (const auto i : simple_route_indices) {
+      all_routes[i] =
+        format_route_simple(input, i, raw_routes[i], unassigned_ranks);
+    }
+
+    // Parallelize MIP-based ETA computation for target routes.
+    const auto nb_target = target_route_indices.size();
+    const auto nb_buckets =
+      std::min(static_cast<std::size_t>(nb_thread), nb_target);
+
+    std::vector<std::vector<std::size_t>> thread_buckets(nb_buckets);
+    for (std::size_t k = 0; k < nb_target; ++k) {
+      thread_buckets[k % nb_buckets].push_back(target_route_indices[k]);
+    }
+
+    std::exception_ptr ep = nullptr;
+    std::mutex ep_m;
+
+    auto run_eta = [&](const std::vector<std::size_t>& indices) {
+      try {
+        for (const auto i : indices) {
+          auto steps =
+            raw_route_to_vehicle_steps(input, raw_routes[i].route);
+          all_routes[i] =
+            validation::choose_ETA(input, raw_routes[i].v_rank, steps);
+        }
+      } catch (...) {
+        const std::scoped_lock<std::mutex> lock(ep_m);
+        ep = std::current_exception();
+      }
+    };
+
+    std::vector<std::jthread> threads;
+    threads.reserve(nb_buckets);
+    for (const auto& bucket : thread_buckets) {
+      threads.emplace_back(run_eta, bucket);
+    }
+    for (auto& t : threads) {
+      t.join();
+    }
+    if (ep != nullptr) {
+      std::rethrow_exception(ep);
+    }
+
+    // Collect non-empty routes in order.
+    std::vector<Route> routes;
+    for (auto& r : all_routes) {
+      if (!r.steps.empty()) {
+        routes.push_back(std::move(r));
+      }
+    }
+
+    return Solution(input.zero_amount(),
+                    std::move(routes),
+                    get_unassigned_jobs_from_ranks(input, unassigned_ranks));
+  }
+#else
+  if (input.has_target_time()) {
+    std::cerr << "[warning] target_time requires libglpk for optimization; "
+                 "falling back to simple forward pass."
+              << std::endl;
+  }
+#endif
+
+  std::vector<Route> routes;
+  routes.reserve(raw_routes.size());
+
   for (std::size_t i = 0; i < raw_routes.size(); ++i) {
-    const auto& route = raw_routes[i].route;
-    if (route.empty()) {
+    if (raw_routes[i].route.empty()) {
       continue;
     }
-    const auto& v = input.vehicles[i];
-
-    assert(route.size() <= v.max_tasks);
-
-    auto previous_location = (v.has_start())
-                               ? v.start.value().index()
-                               : std::numeric_limits<Index>::max();
-    Eval eval_sum;
-    Duration setup = 0;
-    Duration service = 0;
-    Priority priority = 0;
-    Amount sum_pickups(input.zero_amount());
-    Amount sum_deliveries(input.zero_amount());
-#ifndef NDEBUG
-    std::unordered_set<Index> expected_delivery_ranks;
-#endif
-    Amount current_load = raw_routes[i].job_deliveries_sum();
-    assert(current_load <= v.capacity);
-
-    // Steps for current route.
-    std::vector<Step> steps;
-    steps.reserve(route.size() + 2);
-
-    Duration ETA = 0;
-    const auto& first_job = input.jobs[route.front()];
-
-    // Handle start.
-    const auto start_loc = v.has_start() ? v.start.value() : first_job.location;
-    steps.emplace_back(STEP_TYPE::START, start_loc, current_load);
-    if (v.has_start()) {
-      const auto next_leg = v.eval(v.start.value().index(), first_job.index());
-      ETA += next_leg.duration;
-      eval_sum += next_leg;
-    }
-
-    // Handle jobs.
-    assert(input.vehicle_ok_with_job(i, route.front()));
-
-    const auto first_job_setup =
-      (first_job.index() == previous_location) ? 0 : first_job.setups[v.type];
-    setup += first_job_setup;
-    previous_location = first_job.index();
-
-    const auto first_job_service = first_job.services[v.type];
-    service += first_job_service;
-    priority += first_job.priority;
-
-    current_load += first_job.pickup;
-    current_load -= first_job.delivery;
-    sum_pickups += first_job.pickup;
-    sum_deliveries += first_job.delivery;
-    assert(current_load <= v.capacity);
-
-#ifndef NDEBUG
-    check_precedence(input, expected_delivery_ranks, route.front());
-#endif
-
-    steps.emplace_back(first_job,
-                       scale_to_user_duration(first_job_setup),
-                       scale_to_user_duration(first_job_service),
-                       current_load);
-    auto& first = steps.back();
-    first.duration = scale_to_user_duration(ETA);
-    first.distance = eval_sum.distance;
-    first.arrival = scale_to_user_duration(ETA);
-    ETA += (first_job_setup + first_job_service);
-    unassigned_ranks.erase(route.front());
-
-    for (std::size_t r = 0; r < route.size() - 1; ++r) {
-      assert(input.vehicle_ok_with_job(i, route[r + 1]));
-      const auto next_leg =
-        v.eval(input.jobs[route[r]].index(), input.jobs[route[r + 1]].index());
-      ETA += next_leg.duration;
-      eval_sum += next_leg;
-
-      const auto& current_job = input.jobs[route[r + 1]];
-
-      const auto current_setup = (current_job.index() == previous_location)
-                                   ? 0
-                                   : current_job.setups[v.type];
-      setup += current_setup;
-      previous_location = current_job.index();
-
-      const auto current_service = current_job.services[v.type];
-      service += current_service;
-      priority += current_job.priority;
-
-      current_load += current_job.pickup;
-      current_load -= current_job.delivery;
-      sum_pickups += current_job.pickup;
-      sum_deliveries += current_job.delivery;
-      assert(current_load <= v.capacity);
-
-#ifndef NDEBUG
-      check_precedence(input, expected_delivery_ranks, route[r + 1]);
-#endif
-
-      steps.emplace_back(current_job,
-                         scale_to_user_duration(current_setup),
-                         scale_to_user_duration(current_service),
-                         current_load);
-      auto& current = steps.back();
-      current.duration = scale_to_user_duration(eval_sum.duration);
-      current.distance = eval_sum.distance;
-      current.arrival = scale_to_user_duration(ETA);
-      ETA += (current_setup + current_service);
-      unassigned_ranks.erase(route[r + 1]);
-    }
-
-    // Handle end.
-    const auto& last_job = input.jobs[route.back()];
-    const auto end_loc = v.has_end() ? v.end.value() : last_job.location;
-    steps.emplace_back(STEP_TYPE::END, end_loc, current_load);
-    if (v.has_end()) {
-      const auto next_leg = v.eval(last_job.index(), v.end.value().index());
-      ETA += next_leg.duration;
-      eval_sum += next_leg;
-    }
-    auto& last = steps.back();
-    last.duration = scale_to_user_duration(eval_sum.duration);
-    last.distance = eval_sum.distance;
-    last.arrival = scale_to_user_duration(ETA);
-
-    assert(expected_delivery_ranks.empty());
-    assert(v.ok_for_range_bounds(eval_sum));
-
-    assert(v.fixed_cost() % (DURATION_FACTOR * COST_FACTOR) == 0);
-    const UserCost user_fixed_cost = scale_to_user_cost(v.fixed_cost());
-    const UserCost user_travel_cost = scale_to_user_cost(eval_sum.cost);
-    const UserCost user_task_cost =
-      scale_to_user_cost(v.task_cost(setup + service));
-
-    routes.emplace_back(v.id,
-                        std::move(steps),
-                        user_fixed_cost + user_travel_cost + user_task_cost,
-                        scale_to_user_duration(eval_sum.duration),
-                        eval_sum.distance,
-                        scale_to_user_duration(setup),
-                        scale_to_user_duration(service),
-                        0,
-                        priority,
-                        sum_deliveries,
-                        sum_pickups,
-                        v.profile,
-                        v.description);
+    routes.push_back(
+      format_route_simple(input, i, raw_routes[i], unassigned_ranks));
   }
 
   return Solution(input.zero_amount(),
@@ -809,15 +970,111 @@ Route format_route(const Input& input,
                v.description);
 }
 
-Solution format_solution(const Input& input, const TWSolution& tw_routes) {
-  std::vector<Route> routes;
-  routes.reserve(tw_routes.size());
-
+Solution format_solution(const Input& input,
+                         const TWSolution& tw_routes,
+                         unsigned nb_thread) {
   // All job ranks start with unassigned status.
   std::unordered_set<Index> unassigned_ranks;
   for (unsigned i = 0; i < input.jobs.size(); ++i) {
     unassigned_ranks.insert(i);
   }
+
+#if USE_LIBGLPK
+  if (input.has_target_time()) {
+    std::vector<std::size_t> target_route_indices;
+    std::vector<std::size_t> simple_route_indices;
+
+    for (std::size_t i = 0; i < tw_routes.size(); ++i) {
+      if (tw_routes[i].empty()) {
+        continue;
+      }
+
+      bool has_target = std::ranges::any_of(
+        tw_routes[i].route, [&](Index job_rank) {
+          return input.jobs[job_rank].target_time.has_value();
+        });
+
+      if (has_target) {
+        target_route_indices.push_back(i);
+      } else {
+        simple_route_indices.push_back(i);
+      }
+
+      // Mark all jobs as assigned regardless of path.
+      for (const auto job_rank : tw_routes[i].route) {
+        unassigned_ranks.erase(job_rank);
+      }
+    }
+
+    // Use a flat vector indexed by tw_routes position.
+    std::vector<Route> all_routes(tw_routes.size());
+
+    // Format simple routes (no MIP needed).
+    for (const auto i : simple_route_indices) {
+      all_routes[i] = format_route(input, tw_routes[i], unassigned_ranks);
+    }
+
+    // Parallelize MIP-based ETA computation for target routes.
+    const auto nb_target = target_route_indices.size();
+    const auto nb_buckets =
+      std::min(static_cast<std::size_t>(nb_thread), nb_target);
+
+    std::vector<std::vector<std::size_t>> thread_buckets(nb_buckets);
+    for (std::size_t k = 0; k < nb_target; ++k) {
+      thread_buckets[k % nb_buckets].push_back(target_route_indices[k]);
+    }
+
+    std::exception_ptr ep = nullptr;
+    std::mutex ep_m;
+
+    auto run_eta = [&](const std::vector<std::size_t>& indices) {
+      try {
+        for (const auto i : indices) {
+          auto steps = tw_route_to_vehicle_steps(input, tw_routes[i]);
+          all_routes[i] =
+            validation::choose_ETA(input, tw_routes[i].v_rank, steps);
+        }
+      } catch (...) {
+        const std::scoped_lock<std::mutex> lock(ep_m);
+        ep = std::current_exception();
+      }
+    };
+
+    std::vector<std::jthread> threads;
+    threads.reserve(nb_buckets);
+    for (const auto& bucket : thread_buckets) {
+      threads.emplace_back(run_eta, bucket);
+    }
+    for (auto& t : threads) {
+      t.join();
+    }
+    if (ep != nullptr) {
+      std::rethrow_exception(ep);
+    }
+
+    // Collect non-empty routes in order.
+    std::vector<Route> routes;
+    routes.reserve(tw_routes.size());
+    for (auto& r : all_routes) {
+      if (!r.steps.empty()) {
+        routes.push_back(std::move(r));
+      }
+    }
+
+    return Solution(input.zero_amount(),
+                    std::move(routes),
+                    get_unassigned_jobs_from_ranks(input, unassigned_ranks));
+  }
+#else
+  if (input.has_target_time()) {
+    std::cerr << "[warning] target_time requires libglpk for optimization; "
+                 "falling back to simple forward pass."
+              << std::endl;
+  }
+#endif
+
+  std::vector<Route> routes;
+  routes.reserve(tw_routes.size());
 
   for (const auto& tw_route : tw_routes) {
     if (!tw_route.empty()) {

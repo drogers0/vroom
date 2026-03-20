@@ -9,6 +9,8 @@ All rights reserved (see LICENSE).
 
 #include <algorithm>
 #include <cmath>
+#include <unordered_map>
+#include <unordered_set>
 
 #include <glpk.h>
 
@@ -95,6 +97,14 @@ Route choose_ETA(const Input& input,
   std::vector<Duration> relative_ETA;
   relative_ETA.reserve(steps.size());
 
+  // Target time tracking.
+  unsigned nb_target_time = 0;
+  std::vector<Index> target_time_job_ranks;
+  std::vector<Duration> target_time_values;
+  std::vector<unsigned> target_time_t_cols;
+  std::unordered_set<Index> target_linked_job_ranks;
+  std::unordered_map<unsigned, Index> t_col_to_job_rank;
+
   std::optional<Index> previous_index;
   std::optional<Location> first_location;
   std::optional<Location> last_location;
@@ -157,6 +167,23 @@ Route choose_ETA(const Input& input,
         first_location = job.location;
       }
       last_location = job.location;
+
+      // Track target_time jobs and build column-to-rank map.
+      t_col_to_job_rank[current_index + 1] = step.rank;
+      if (job.target_time.has_value()) {
+        target_time_job_ranks.push_back(step.rank);
+        target_time_values.push_back(job.target_time.value());
+        target_time_t_cols.push_back(current_index + 1);
+        ++nb_target_time;
+
+        target_linked_job_ranks.insert(step.rank);
+        if (job.type == JOB_TYPE::PICKUP) {
+          target_linked_job_ranks.insert(step.rank + 1);
+        } else if (job.type == JOB_TYPE::DELIVERY) {
+          target_linked_job_ranks.insert(step.rank - 1);
+        }
+      }
+
       ++current_index;
       break;
     }
@@ -581,13 +608,17 @@ Route choose_ETA(const Input& input,
   glp_set_obj_dir(lp, GLP_MIN);
 
   // Constants and column indices.
-  const unsigned nb_constraints = 4 * n + 3 + nb_delta_constraints + 2;
+  const unsigned nb_target_vars = 2 * nb_target_time;
+  const unsigned nb_constraints =
+    4 * n + 3 + nb_delta_constraints + 2 + nb_target_time;
   const unsigned nb_non_zero =
-    2 * (3 * n + 3) + 3 * K + 2 * n + 2 - default_job_tw + 2 + n + 2;
+    2 * (3 * n + 3) + 3 * K + 2 * n + 2 - default_job_tw + 2 + n + 2 +
+    3 * nb_target_time;
   const unsigned start_Y_col = n + 3;
   const unsigned start_X_col = 2 * n + 4 + 1;
   const unsigned start_delta_col = start_X_col + K;
-  const unsigned nb_var = start_delta_col + n;
+  const unsigned start_target_col = start_delta_col + n + 1;
+  const unsigned nb_var = start_target_col + nb_target_vars - 1;
 
   // Set objective for first optimization round (violations and
   // makespan).
@@ -685,9 +716,9 @@ Route choose_ETA(const Input& input,
   const auto* name = "Makespan";
   glp_set_row_name(lp, current_row, name);
   glp_set_row_bnds(lp, current_row, GLP_LO, 0, 0);
+  const unsigned makespan_row = current_row;
 
   ++current_row;
-  assert(current_row == nb_constraints);
 
   name = "Sigma_Y";
   glp_set_row_name(lp, current_row, name);
@@ -696,6 +727,21 @@ Route choose_ETA(const Input& input,
   } else {
     glp_set_row_bnds(lp, current_row, GLP_DB, 0, sample_violations);
   }
+  const unsigned sigma_y_row = current_row;
+
+  ++current_row;
+
+  // Target time deviation constraints.
+  for (unsigned i = 0; i < nb_target_time; ++i) {
+    auto tt_name = std::format("TT{}", i);
+    glp_set_row_name(lp, current_row, tt_name.c_str());
+    const double rhs = static_cast<double>(
+      static_cast<int64_t>(target_time_values[i]) -
+      static_cast<int64_t>(horizon_start));
+    glp_set_row_bnds(lp, current_row, GLP_FX, rhs, rhs);
+    ++current_row;
+  }
+  assert(current_row == nb_constraints + 1);
 
   // 3. set variables and coefficients.
   unsigned current_col = 1;
@@ -756,6 +802,20 @@ Route choose_ETA(const Input& input,
   for (unsigned i = 0; i <= n; ++i) {
     auto delta_name = std::format("delta{}", i);
     glp_set_col_name(lp, current_col, delta_name.c_str());
+    glp_set_col_bnds(lp, current_col, GLP_LO, 0.0, 0.0);
+    ++current_col;
+  }
+  assert(current_col == start_target_col);
+
+  // Target deviation variables.
+  for (unsigned i = 0; i < nb_target_time; ++i) {
+    auto early_name = std::format("te{}", i);
+    glp_set_col_name(lp, current_col, early_name.c_str());
+    glp_set_col_bnds(lp, current_col, GLP_LO, 0.0, 0.0);
+    ++current_col;
+
+    auto late_name = std::format("tl{}", i);
+    glp_set_col_name(lp, current_col, late_name.c_str());
     glp_set_col_bnds(lp, current_col, GLP_LO, 0.0, 0.0);
     ++current_col;
   }
@@ -946,7 +1006,7 @@ Route choose_ETA(const Input& input,
     }
     ++constraint_rank;
   }
-  assert(current_delta_rank == nb_var + 1);
+  assert(current_delta_rank == start_target_col);
 
   // Makespan coefficients
   // a[constraint_rank, 1] = -1
@@ -961,7 +1021,7 @@ Route choose_ETA(const Input& input,
   ++r;
 
   ++constraint_rank;
-  assert(constraint_rank == nb_constraints);
+  assert(constraint_rank == nb_constraints - nb_target_time);
 
   // \sum Y_i
   for (unsigned i = start_Y_col; i < start_X_col; ++i) {
@@ -971,6 +1031,34 @@ Route choose_ETA(const Input& input,
     ar[r] = 1;
     ++r;
   }
+
+  ++constraint_rank;
+
+  // Target time deviation matrix entries.
+  for (unsigned i = 0; i < nb_target_time; ++i) {
+    const unsigned row = constraint_rank;
+
+    // t_i coefficient = 1
+    ia[r] = row;
+    ja[r] = target_time_t_cols[i];
+    ar[r] = 1;
+    ++r;
+
+    // target_early_i coefficient = 1
+    ia[r] = row;
+    ja[r] = start_target_col + 2 * i;
+    ar[r] = 1;
+    ++r;
+
+    // target_late_i coefficient = -1
+    ia[r] = row;
+    ja[r] = start_target_col + 2 * i + 1;
+    ar[r] = -1;
+    ++r;
+
+    ++constraint_rank;
+  }
+  assert(constraint_rank == nb_constraints + 1);
   assert(r == nb_non_zero + 1);
 
   glp_load_matrix(lp, nb_non_zero, ia, ja, ar);
@@ -1009,7 +1097,7 @@ Route choose_ETA(const Input& input,
     current_delta_rank += (1 + B[i]);
     delta_sum_majorant += (B[i] * evals[i].duration);
   }
-  assert(current_delta_rank == nb_var + 1);
+  assert(current_delta_rank == start_target_col);
 
   for (unsigned i = 0; i <= n + 1; ++i) {
     glp_set_obj_coef(lp, start_Y_col + i, 0);
@@ -1018,15 +1106,40 @@ Route choose_ETA(const Input& input,
   glp_set_obj_coef(lp, 1, 0);
 
   const auto M = (delta_sum_majorant == 0) ? 1 : delta_sum_majorant;
-  for (unsigned i = 2; i <= n + 1; ++i) {
-    glp_set_obj_coef(lp, i, M);
+
+  if (nb_target_time > 0) {
+    const auto target_weight = M * (n + 2);
+
+    // Columns 2..n+1 are t_1..t_n (job/break steps).
+    for (unsigned i = 2; i <= n + 1; ++i) {
+      auto it = t_col_to_job_rank.find(i);
+      if (it != t_col_to_job_rank.end() &&
+          target_linked_job_ranks.contains(it->second)) {
+        // Target-linked job: no earliness preference — free to drift.
+        glp_set_obj_coef(lp, i, 0);
+      } else {
+        // Unrelated job or break: earliness as tiebreaker (weight 1).
+        glp_set_obj_coef(lp, i, 1);
+      }
+    }
+
+    // Symmetric target deviation — dominates all earliness terms.
+    for (unsigned i = 0; i < nb_target_time; ++i) {
+      glp_set_obj_coef(lp, start_target_col + 2 * i, target_weight);
+      glp_set_obj_coef(lp, start_target_col + 2 * i + 1, target_weight);
+    }
+  } else {
+    // No target_time jobs — existing behavior: minimize earliness.
+    for (unsigned i = 2; i <= n + 1; ++i) {
+      glp_set_obj_coef(lp, i, M);
+    }
   }
 
   // Add constraint to fix makespan.
   const Duration best_makespan = get_duration(glp_mip_col_val(lp, n + 2)) -
                                  get_duration(glp_mip_col_val(lp, 1));
   glp_set_row_bnds(lp,
-                   nb_constraints - 1,
+                   makespan_row,
                    GLP_FX,
                    best_makespan,
                    best_makespan);
@@ -1035,7 +1148,7 @@ Route choose_ETA(const Input& input,
   for (unsigned i = start_Y_col; i < start_X_col; ++i) {
     sum_y_i += get_duration(glp_mip_col_val(lp, i));
   }
-  glp_set_row_bnds(lp, nb_constraints, GLP_FX, sum_y_i, sum_y_i);
+  glp_set_row_bnds(lp, sigma_y_row, GLP_FX, sum_y_i, sum_y_i);
 
   glp_intopt(lp, &parm);
 
@@ -1045,6 +1158,16 @@ Route choose_ETA(const Input& input,
   }
   // We should not get GLP_FEAS.
   assert(status == GLP_OPT);
+
+  // Extract target deviations from pass 2.
+  std::unordered_map<Index, std::pair<Duration, Duration>> target_deviations;
+  for (unsigned i = 0; i < nb_target_time; ++i) {
+    const auto early =
+      get_duration(glp_mip_col_val(lp, start_target_col + 2 * i));
+    const auto late =
+      get_duration(glp_mip_col_val(lp, start_target_col + 2 * i + 1));
+    target_deviations[target_time_job_ranks[i]] = {early, late};
+  }
 
   // Get output.
   const Duration v_start = horizon_start + get_duration(glp_mip_col_val(lp, 1));
@@ -1281,6 +1404,14 @@ Route choose_ETA(const Input& input,
       if (!v.ok_for_distance(current.distance)) {
         current.violations.types.insert(VIOLATION::MAX_DISTANCE);
         v_types.insert(VIOLATION::MAX_DISTANCE);
+      }
+
+      // Wire target deviations to step output.
+      if (auto it = target_deviations.find(job_rank);
+          it != target_deviations.end()) {
+        const auto& [early, late] = it->second;
+        current.target_lead = utils::scale_to_user_duration(early);
+        current.target_delay = utils::scale_to_user_duration(late);
       }
 
       switch (job.type) {

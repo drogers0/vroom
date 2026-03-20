@@ -262,7 +262,8 @@ protected:
       format_solution(_input,
                       context.solutions[std::distance(context.sol_indicators
                                                         .cbegin(),
-                                                      best_indic)]);
+                                                      best_indic)],
+                      nb_threads);
   }
 
 public:

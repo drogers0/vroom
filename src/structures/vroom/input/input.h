@@ -56,6 +56,8 @@ private:
   bool _report_distances;
   bool _has_jobs{false};
   bool _has_shipments{false};
+  bool _has_target_time{false};
+  TimingObjective _timing_objective;
   std::unordered_map<std::string,
                      Matrix<UserDuration>,
                      StringHash,
@@ -197,6 +199,11 @@ public:
   bool has_homogeneous_costs() const;
 
   bool has_initial_routes() const;
+
+  bool has_target_time() const;
+
+  void set_timing_objective(TimingObjective obj);
+  const TimingObjective& timing_objective() const;
 
   bool vehicle_ok_with_job(size_t v_index, size_t j_index) const {
     return static_cast<bool>(_vehicle_to_job_compatibility[v_index][j_index]);
