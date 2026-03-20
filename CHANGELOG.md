@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Added
+
+#### Features
+
+- Configurable `timing_objective` in options for task-time optimization (#1330)
+
+#### Internals
+
+- Add real-life benchmark appendix for `timing_objective` (Solomon, Homberger, Li&Lim, CVRPLIB-X), see `benchmark_results/PR_BENCHMARK_APPENDIX.md`
+
 ### Fixed
 
 #### Internals
@@ -651,4 +661,3 @@
   solution and execution details.
 - Optional ready-to-use detailed route.
 - Optional use of euclidean distance for matrix computation.
-
