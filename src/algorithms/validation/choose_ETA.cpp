@@ -105,6 +105,10 @@ Route choose_ETA(const Input& input,
   std::unordered_set<Index> target_linked_job_ranks;
   std::unordered_map<unsigned, Index> t_col_to_job_rank;
 
+  // Shipment span tracking: (pickup_t_col, delivery_t_col) pairs.
+  std::vector<std::pair<unsigned, unsigned>> shipment_col_pairs;
+  std::unordered_map<Index, unsigned> pickup_rank_to_t_col;
+
   std::optional<Index> previous_index;
   std::optional<Location> first_location;
   std::optional<Location> last_location;
@@ -181,6 +185,16 @@ Route choose_ETA(const Input& input,
           target_linked_job_ranks.insert(step.rank + 1);
         } else if (job.type == JOB_TYPE::DELIVERY) {
           target_linked_job_ranks.insert(step.rank - 1);
+        }
+      }
+
+      // Track shipment pickup/delivery pairs.
+      if (job.type == JOB_TYPE::PICKUP) {
+        pickup_rank_to_t_col[step.rank] = current_index + 1;
+      } else if (job.type == JOB_TYPE::DELIVERY) {
+        auto it = pickup_rank_to_t_col.find(step.rank - 1);
+        if (it != pickup_rank_to_t_col.end()) {
+          shipment_col_pairs.emplace_back(it->second, current_index + 1);
         }
       }
 
@@ -601,6 +615,25 @@ Route choose_ETA(const Input& input,
   assert(B.size() == nb_delta_constraints);
   assert(evals.size() == nb_delta_constraints);
 
+  // Timing objective configuration.
+  const auto& timing_obj = input.timing_objective();
+  const bool use_default_path = timing_obj.is_default();
+  const unsigned nb_shipment_pairs =
+    static_cast<unsigned>(shipment_col_pairs.size());
+
+  // Extra constraint rows for non-default timing objective:
+  // - Sigma_TT: sum of target deviations (if target_time jobs exist)
+  // - Sigma_SS: sum of shipment spans (if shipments exist)
+  const unsigned nb_sigma_tt =
+    (!use_default_path && nb_target_time > 0) ? 1 : 0;
+  const unsigned nb_sigma_ss =
+    (!use_default_path && nb_shipment_pairs > 0) ? 1 : 0;
+  const unsigned nb_extra_constraints = nb_sigma_tt + nb_sigma_ss;
+  // Non-zero entries: Sigma_TT has 2 * nb_target_time entries,
+  // Sigma_SS has 2 * nb_shipment_pairs entries.
+  const unsigned nb_extra_non_zero =
+    nb_sigma_tt * 2 * nb_target_time + nb_sigma_ss * 2 * nb_shipment_pairs;
+
   // 1. create problem.
   glp_prob* lp;
   lp = glp_create_prob();
@@ -609,11 +642,11 @@ Route choose_ETA(const Input& input,
 
   // Constants and column indices.
   const unsigned nb_target_vars = 2 * nb_target_time;
-  const unsigned nb_constraints =
-    4 * n + 3 + nb_delta_constraints + 2 + nb_target_time;
-  const unsigned nb_non_zero =
-    2 * (3 * n + 3) + 3 * K + 2 * n + 2 - default_job_tw + 2 + n + 2 +
-    3 * nb_target_time;
+  const unsigned nb_constraints = 4 * n + 3 + nb_delta_constraints + 2 +
+                                  nb_target_time + nb_extra_constraints;
+  const unsigned nb_non_zero = 2 * (3 * n + 3) + 3 * K + 2 * n + 2 -
+                               default_job_tw + 2 + n + 2 + 3 * nb_target_time +
+                               nb_extra_non_zero;
   const unsigned start_Y_col = n + 3;
   const unsigned start_X_col = 2 * n + 4 + 1;
   const unsigned start_delta_col = start_X_col + K;
@@ -735,12 +768,29 @@ Route choose_ETA(const Input& input,
   for (unsigned i = 0; i < nb_target_time; ++i) {
     auto tt_name = std::format("TT{}", i);
     glp_set_row_name(lp, current_row, tt_name.c_str());
-    const double rhs = static_cast<double>(
-      static_cast<int64_t>(target_time_values[i]) -
-      static_cast<int64_t>(horizon_start));
+    const double rhs =
+      static_cast<double>(static_cast<int64_t>(target_time_values[i]) -
+                          static_cast<int64_t>(horizon_start));
     glp_set_row_bnds(lp, current_row, GLP_FX, rhs, rhs);
     ++current_row;
   }
+
+  // Sigma constraint rows for configurable timing objective pinning.
+  unsigned sigma_tt_row = 0;
+  if (nb_sigma_tt > 0) {
+    glp_set_row_name(lp, current_row, "Sigma_TT");
+    glp_set_row_bnds(lp, current_row, GLP_FR, 0, 0);
+    sigma_tt_row = current_row;
+    ++current_row;
+  }
+  unsigned sigma_ss_row = 0;
+  if (nb_sigma_ss > 0) {
+    glp_set_row_name(lp, current_row, "Sigma_SS");
+    glp_set_row_bnds(lp, current_row, GLP_FR, 0, 0);
+    sigma_ss_row = current_row;
+    ++current_row;
+  }
+
   assert(current_row == nb_constraints + 1);
 
   // 3. set variables and coefficients.
@@ -1021,7 +1071,8 @@ Route choose_ETA(const Input& input,
   ++r;
 
   ++constraint_rank;
-  assert(constraint_rank == nb_constraints - nb_target_time);
+  assert(constraint_rank ==
+         nb_constraints - nb_target_time - nb_extra_constraints);
 
   // \sum Y_i
   for (unsigned i = start_Y_col; i < start_X_col; ++i) {
@@ -1058,6 +1109,43 @@ Route choose_ETA(const Input& input,
 
     ++constraint_rank;
   }
+
+  // Sigma_TT matrix entries: sum of all target deviation variables.
+  if (nb_sigma_tt > 0) {
+    assert(constraint_rank == sigma_tt_row);
+    for (unsigned i = 0; i < nb_target_time; ++i) {
+      // target_early_i coefficient = 1
+      ia[r] = sigma_tt_row;
+      ja[r] = start_target_col + 2 * i;
+      ar[r] = 1;
+      ++r;
+      // target_late_i coefficient = 1
+      ia[r] = sigma_tt_row;
+      ja[r] = start_target_col + 2 * i + 1;
+      ar[r] = 1;
+      ++r;
+    }
+    ++constraint_rank;
+  }
+
+  // Sigma_SS matrix entries: sum of shipment spans.
+  if (nb_sigma_ss > 0) {
+    assert(constraint_rank == sigma_ss_row);
+    for (const auto& [pickup_col, delivery_col] : shipment_col_pairs) {
+      // delivery t_col coefficient = 1
+      ia[r] = sigma_ss_row;
+      ja[r] = delivery_col;
+      ar[r] = 1;
+      ++r;
+      // pickup t_col coefficient = -1
+      ia[r] = sigma_ss_row;
+      ja[r] = pickup_col;
+      ar[r] = -1;
+      ++r;
+    }
+    ++constraint_rank;
+  }
+
   assert(constraint_rank == nb_constraints + 1);
   assert(r == nb_non_zero + 1);
 
@@ -1085,8 +1173,8 @@ Route choose_ETA(const Input& input,
   // We should not get GLP_FEAS.
   assert(status == GLP_OPT);
 
-  // 5. Solve for earliest start dates.
-  // Adjust objective.
+  // 5. Solve for timing objectives.
+  // Common setup: compute delta coefficients and majorant.
   Duration delta_sum_majorant = 0;
   current_delta_rank = start_delta_col;
   for (unsigned i = 0; i < B.size(); ++i) {
@@ -1099,6 +1187,7 @@ Route choose_ETA(const Input& input,
   }
   assert(current_delta_rank == start_target_col);
 
+  // Zero out pass 1 objective coefficients.
   for (unsigned i = 0; i <= n + 1; ++i) {
     glp_set_obj_coef(lp, start_Y_col + i, 0);
   }
@@ -1107,57 +1196,187 @@ Route choose_ETA(const Input& input,
 
   const auto M = (delta_sum_majorant == 0) ? 1 : delta_sum_majorant;
 
-  if (nb_target_time > 0) {
-    const auto target_weight = M * (n + 2);
-
-    // Columns 2..n+1 are t_1..t_n (job/break steps).
-    for (unsigned i = 2; i <= n + 1; ++i) {
-      auto it = t_col_to_job_rank.find(i);
-      if (it != t_col_to_job_rank.end() &&
-          target_linked_job_ranks.contains(it->second)) {
-        // Target-linked job: no earliness preference — free to drift.
-        glp_set_obj_coef(lp, i, 0);
-      } else {
-        // Unrelated job or break: earliness as tiebreaker (weight 1).
-        glp_set_obj_coef(lp, i, 1);
-      }
-    }
-
-    // Symmetric target deviation — dominates all earliness terms.
-    for (unsigned i = 0; i < nb_target_time; ++i) {
-      glp_set_obj_coef(lp, start_target_col + 2 * i, target_weight);
-      glp_set_obj_coef(lp, start_target_col + 2 * i + 1, target_weight);
-    }
-  } else {
-    // No target_time jobs — existing behavior: minimize earliness.
-    for (unsigned i = 2; i <= n + 1; ++i) {
-      glp_set_obj_coef(lp, i, M);
-    }
-  }
-
-  // Add constraint to fix makespan.
-  const Duration best_makespan = get_duration(glp_mip_col_val(lp, n + 2)) -
-                                 get_duration(glp_mip_col_val(lp, 1));
-  glp_set_row_bnds(lp,
-                   makespan_row,
-                   GLP_FX,
-                   best_makespan,
-                   best_makespan);
-  // Pin Y_i sum.
+  // Pin violations from pass 1.
   Duration sum_y_i = 0;
   for (unsigned i = start_Y_col; i < start_X_col; ++i) {
     sum_y_i += get_duration(glp_mip_col_val(lp, i));
   }
   glp_set_row_bnds(lp, sigma_y_row, GLP_FX, sum_y_i, sum_y_i);
 
-  glp_intopt(lp, &parm);
+  // Pin makespan from pass 1 (unpinned below for configurable path).
+  const Duration best_makespan = get_duration(glp_mip_col_val(lp, n + 2)) -
+                                 get_duration(glp_mip_col_val(lp, 1));
+  glp_set_row_bnds(lp, makespan_row, GLP_FX, best_makespan, best_makespan);
 
-  status = glp_mip_status(lp);
-  if (status == GLP_UNDEF || status == GLP_NOFEAS) {
-    throw InputException(std::format("Infeasible route for vehicle {}.", v.id));
+  // Helper to clear all t_i and target deviation objective coefficients.
+  auto clear_objective = [&]() {
+    for (unsigned i = 1; i <= n + 2; ++i) {
+      glp_set_obj_coef(lp, i, 0);
+    }
+    for (unsigned i = 0; i < nb_target_time; ++i) {
+      glp_set_obj_coef(lp, start_target_col + 2 * i, 0);
+      glp_set_obj_coef(lp, start_target_col + 2 * i + 1, 0);
+    }
+  };
+
+  // Helper to set earliness objective coefficients.
+  // When additive is true, adds to existing coefficients (for tiebreaking).
+  auto set_earliness = [&](double weight, bool additive = false) {
+    for (unsigned i = 2; i <= n + 1; ++i) {
+      const double base = additive ? glp_get_obj_coef(lp, i) : 0.0;
+      glp_set_obj_coef(lp, i, base + weight);
+    }
+  };
+
+  // Helper to set target_time objective coefficients. Uses additive
+  // mode for non-linked t_i columns so it composes correctly with
+  // other objectives in weighted mode.
+  auto set_target_time_obj = [&](double weight) {
+    if (nb_target_time == 0) {
+      return;
+    }
+    // Scale so total deviation cost dominates n individual earliness terms.
+    const auto target_weight = weight * M * (n + 2);
+    for (unsigned i = 2; i <= n + 1; ++i) {
+      auto it = t_col_to_job_rank.find(i);
+      if (it != t_col_to_job_rank.end() &&
+          target_linked_job_ranks.contains(it->second)) {
+        // Skip target-linked cols: deviation vars handle these.
+      } else {
+        glp_set_obj_coef(lp, i, glp_get_obj_coef(lp, i) + weight);
+      }
+    }
+    for (unsigned i = 0; i < nb_target_time; ++i) {
+      glp_set_obj_coef(lp, start_target_col + 2 * i, target_weight);
+      glp_set_obj_coef(lp, start_target_col + 2 * i + 1, target_weight);
+    }
+  };
+
+  // Helper to set shipment_span objective coefficients.
+  auto set_shipment_span_obj = [&](double weight) {
+    for (const auto& [pickup_col, delivery_col] : shipment_col_pairs) {
+      glp_set_obj_coef(lp,
+                       delivery_col,
+                       glp_get_obj_coef(lp, delivery_col) + weight);
+      glp_set_obj_coef(lp,
+                       pickup_col,
+                       glp_get_obj_coef(lp, pickup_col) - weight);
+    }
+  };
+
+  // Helper to set makespan objective coefficients.
+  auto set_makespan_obj = [&](double weight) {
+    glp_set_obj_coef(lp, n + 2, weight);
+    glp_set_obj_coef(lp, 1, -weight);
+  };
+
+  // Helper to solve and check status.
+  auto solve_and_check = [&]() {
+    glp_intopt(lp, &parm);
+    status = glp_mip_status(lp);
+    if (status == GLP_UNDEF || status == GLP_NOFEAS) {
+      throw InputException(
+        std::format("Infeasible route for vehicle {}.", v.id));
+    }
+    assert(status == GLP_OPT);
+  };
+
+  // Helper to pin a specific objective after optimization.
+  auto pin_objective = [&](TIMING_OBJ obj) {
+    using enum TIMING_OBJ;
+    switch (obj) {
+    case MAKESPAN: {
+      const Duration ms = get_duration(glp_mip_col_val(lp, n + 2)) -
+                          get_duration(glp_mip_col_val(lp, 1));
+      glp_set_row_bnds(lp, makespan_row, GLP_FX, ms, ms);
+      break;
+    }
+    case TARGET_TIME: {
+      if (sigma_tt_row > 0) {
+        Duration sum_tt = 0;
+        for (unsigned i = 0; i < nb_target_time; ++i) {
+          sum_tt += get_duration(glp_mip_col_val(lp, start_target_col + 2 * i));
+          sum_tt +=
+            get_duration(glp_mip_col_val(lp, start_target_col + 2 * i + 1));
+        }
+        glp_set_row_bnds(lp, sigma_tt_row, GLP_FX, sum_tt, sum_tt);
+      }
+      break;
+    }
+    case SHIPMENT_SPAN: {
+      if (sigma_ss_row > 0) {
+        Duration sum_ss = 0;
+        for (const auto& [pickup_col, delivery_col] : shipment_col_pairs) {
+          sum_ss += get_duration(glp_mip_col_val(lp, delivery_col));
+          sum_ss -= get_duration(glp_mip_col_val(lp, pickup_col));
+        }
+        glp_set_row_bnds(lp, sigma_ss_row, GLP_FX, sum_ss, sum_ss);
+      }
+      break;
+    }
+    }
+  };
+
+  // Helper to set objective for a TIMING_OBJ with given weight.
+  auto set_objective_for = [&](TIMING_OBJ obj, double weight) {
+    using enum TIMING_OBJ;
+    switch (obj) {
+    case MAKESPAN:
+      set_makespan_obj(weight);
+      break;
+    case TARGET_TIME:
+      set_target_time_obj(weight);
+      break;
+    case SHIPMENT_SPAN:
+      set_shipment_span_obj(weight);
+      break;
+    }
+  };
+
+  if (use_default_path) {
+    // Default path: exact current behavior.
+    if (nb_target_time > 0) {
+      set_target_time_obj(1.0);
+    } else {
+      set_earliness(M);
+    }
+
+    solve_and_check();
+  } else {
+    // Configurable timing objective path.
+    // Unpin makespan — it was pinned above but configurable objectives
+    // may want to optimize it in a different order.
+    glp_set_row_bnds(lp, makespan_row, GLP_LO, 0, 0);
+
+    if (timing_obj.mode == TIMING_MODE::HIERARCHICAL) {
+      // Lexicographic multi-pass: one solve per objective, pinning
+      // each optimal value before proceeding to the next.
+      for (const auto obj : timing_obj.objectives) {
+        clear_objective();
+        set_objective_for(obj, 1.0);
+        solve_and_check();
+        pin_objective(obj);
+      }
+
+      // Final earliness tiebreaker pass.
+      clear_objective();
+      set_earliness(M);
+      solve_and_check();
+    } else {
+      // Weighted single-pass: iterate all TIMING_OBJ values,
+      // applying their configured weights.
+      clear_objective();
+      for (const auto obj : ALL_TIMING_OBJ) {
+        const double w = timing_obj.weight(obj);
+        if (w != 0.0) {
+          set_objective_for(obj, w);
+        }
+      }
+      // Add small additive earliness tiebreaker.
+      set_earliness(1.0, true);
+      solve_and_check();
+    }
   }
-  // We should not get GLP_FEAS.
-  assert(status == GLP_OPT);
 
   // Extract target deviations from pass 2.
   std::unordered_map<Index, std::pair<Duration, Duration>> target_deviations;
@@ -1226,6 +1445,7 @@ Route choose_ETA(const Input& input,
 
         ++current_X_rank;
       }
+      break;
     }
     case END:
       break;
@@ -1314,7 +1534,6 @@ Route choose_ETA(const Input& input,
       using enum STEP_TYPE;
     case START:
       continue;
-      break;
     case JOB: {
       auto job_rank = step.rank;
       const auto& job = input.jobs[job_rank];

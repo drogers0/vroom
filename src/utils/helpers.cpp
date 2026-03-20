@@ -374,8 +374,14 @@ Solution format_solution(const Input& input,
   }
 
 #if USE_LIBGLPK
-  if (input.has_target_time()) {
-    std::vector<std::size_t> target_route_indices;
+  const bool needs_eta =
+    input.has_target_time() || !input.timing_objective().is_default();
+  if (needs_eta) {
+    // When a global timing_objective is set, all routes go through MIP
+    // because objectives like makespan and shipment_span apply globally.
+    const bool all_routes_need_eta = !input.timing_objective().is_default();
+
+    std::vector<std::size_t> eta_route_indices;
     std::vector<std::size_t> simple_route_indices;
 
     for (std::size_t i = 0; i < raw_routes.size(); ++i) {
@@ -384,12 +390,15 @@ Solution format_solution(const Input& input,
         continue;
       }
 
-      bool has_target = std::ranges::any_of(route, [&](Index job_rank) {
-        return input.jobs[job_rank].target_time.has_value();
-      });
+      bool route_needs_eta = all_routes_need_eta;
+      if (!route_needs_eta) {
+        route_needs_eta = std::ranges::any_of(route, [&](Index job_rank) {
+          return input.jobs[job_rank].target_time.has_value();
+        });
+      }
 
-      if (has_target) {
-        target_route_indices.push_back(i);
+      if (route_needs_eta) {
+        eta_route_indices.push_back(i);
       } else {
         simple_route_indices.push_back(i);
       }
@@ -409,14 +418,14 @@ Solution format_solution(const Input& input,
         format_route_simple(input, i, raw_routes[i], unassigned_ranks);
     }
 
-    // Parallelize MIP-based ETA computation for target routes.
-    const auto nb_target = target_route_indices.size();
+    // Parallelize MIP-based ETA computation for ETA routes.
+    const auto nb_eta = eta_route_indices.size();
     const auto nb_buckets =
-      std::min(static_cast<std::size_t>(nb_thread), nb_target);
+      std::min(static_cast<std::size_t>(nb_thread), nb_eta);
 
     std::vector<std::vector<std::size_t>> thread_buckets(nb_buckets);
-    for (std::size_t k = 0; k < nb_target; ++k) {
-      thread_buckets[k % nb_buckets].push_back(target_route_indices[k]);
+    for (std::size_t k = 0; k < nb_eta; ++k) {
+      thread_buckets[k % nb_buckets].push_back(eta_route_indices[k]);
     }
 
     std::exception_ptr ep = nullptr;
@@ -450,6 +459,7 @@ Solution format_solution(const Input& input,
 
     // Collect non-empty routes in order.
     std::vector<Route> routes;
+    routes.reserve(raw_routes.size());
     for (auto& r : all_routes) {
       if (!r.steps.empty()) {
         routes.push_back(std::move(r));
@@ -461,9 +471,9 @@ Solution format_solution(const Input& input,
                     get_unassigned_jobs_from_ranks(input, unassigned_ranks));
   }
 #else
-  if (input.has_target_time()) {
-    std::cerr << "[warning] target_time requires libglpk for optimization; "
-                 "falling back to simple forward pass."
+  if (input.has_target_time() || !input.timing_objective().is_default()) {
+    std::cerr << "[warning] timing_objective/target_time requires libglpk for "
+                 "optimization; falling back to simple forward pass."
               << std::endl;
   }
 #endif
@@ -980,8 +990,14 @@ Solution format_solution(const Input& input,
   }
 
 #if USE_LIBGLPK
-  if (input.has_target_time()) {
-    std::vector<std::size_t> target_route_indices;
+  const bool needs_eta =
+    input.has_target_time() || !input.timing_objective().is_default();
+  if (needs_eta) {
+    // When a global timing_objective is set, all routes go through MIP
+    // because objectives like makespan and shipment_span apply globally.
+    const bool all_routes_need_eta = !input.timing_objective().is_default();
+
+    std::vector<std::size_t> eta_route_indices;
     std::vector<std::size_t> simple_route_indices;
 
     for (std::size_t i = 0; i < tw_routes.size(); ++i) {
@@ -989,13 +1005,16 @@ Solution format_solution(const Input& input,
         continue;
       }
 
-      bool has_target = std::ranges::any_of(
-        tw_routes[i].route, [&](Index job_rank) {
-          return input.jobs[job_rank].target_time.has_value();
-        });
+      bool route_needs_eta = all_routes_need_eta;
+      if (!route_needs_eta) {
+        route_needs_eta =
+          std::ranges::any_of(tw_routes[i].route, [&](Index job_rank) {
+            return input.jobs[job_rank].target_time.has_value();
+          });
+      }
 
-      if (has_target) {
-        target_route_indices.push_back(i);
+      if (route_needs_eta) {
+        eta_route_indices.push_back(i);
       } else {
         simple_route_indices.push_back(i);
       }
@@ -1014,14 +1033,14 @@ Solution format_solution(const Input& input,
       all_routes[i] = format_route(input, tw_routes[i], unassigned_ranks);
     }
 
-    // Parallelize MIP-based ETA computation for target routes.
-    const auto nb_target = target_route_indices.size();
+    // Parallelize MIP-based ETA computation for ETA routes.
+    const auto nb_eta = eta_route_indices.size();
     const auto nb_buckets =
-      std::min(static_cast<std::size_t>(nb_thread), nb_target);
+      std::min(static_cast<std::size_t>(nb_thread), nb_eta);
 
     std::vector<std::vector<std::size_t>> thread_buckets(nb_buckets);
-    for (std::size_t k = 0; k < nb_target; ++k) {
-      thread_buckets[k % nb_buckets].push_back(target_route_indices[k]);
+    for (std::size_t k = 0; k < nb_eta; ++k) {
+      thread_buckets[k % nb_buckets].push_back(eta_route_indices[k]);
     }
 
     std::exception_ptr ep = nullptr;
@@ -1066,9 +1085,9 @@ Solution format_solution(const Input& input,
                     get_unassigned_jobs_from_ranks(input, unassigned_ranks));
   }
 #else
-  if (input.has_target_time()) {
-    std::cerr << "[warning] target_time requires libglpk for optimization; "
-                 "falling back to simple forward pass."
+  if (input.has_target_time() || !input.timing_objective().is_default()) {
+    std::cerr << "[warning] timing_objective/target_time requires libglpk for "
+                 "optimization; falling back to simple forward pass."
               << std::endl;
   }
 #endif
