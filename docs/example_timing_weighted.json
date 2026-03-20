@@ -1,0 +1,63 @@
+{
+  "vehicles": [
+    {
+      "id": 1,
+      "start_index": 0,
+      "end_index": 0,
+      "time_window": [28800, 43200]
+    }
+  ],
+  "shipments": [
+    {
+      "pickup": {
+        "id": 1,
+        "service": 120,
+        "location_index": 1,
+        "target_time": 30000,
+        "time_windows": [[29000, 32000]]
+      },
+      "delivery": {
+        "id": 2,
+        "service": 120,
+        "location_index": 2,
+        "time_windows": [[30000, 36000]]
+      }
+    },
+    {
+      "pickup": {
+        "id": 3,
+        "service": 120,
+        "location_index": 3,
+        "target_time": 31500,
+        "time_windows": [[29000, 33000]]
+      },
+      "delivery": {
+        "id": 4,
+        "service": 120,
+        "location_index": 4,
+        "time_windows": [[31000, 37000]]
+      }
+    }
+  ],
+  "matrices": {
+    "car": {
+      "durations": [
+        [0, 600, 1200, 900, 1500],
+        [600, 0, 800, 500, 1100],
+        [1200, 800, 0, 700, 400],
+        [900, 500, 700, 0, 600],
+        [1500, 1100, 400, 600, 0]
+      ]
+    }
+  },
+  "options": {
+    "timing_objective": {
+      "mode": "weighted",
+      "weights": {
+        "target_time": 3,
+        "shipment_span": 2,
+        "makespan": 1
+      }
+    }
+  }
+}

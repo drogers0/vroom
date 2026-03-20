@@ -48,6 +48,7 @@ The problem description is read from standard input or from a file
 | [`shipments`](#shipments) |  array of `shipment` objects describing pickup and delivery tasks |
 | [`vehicles`](#vehicles) |  array of `vehicle` objects describing the available vehicles |
 | [[`matrices`](#matrices)] | optional description of per-profile custom matrices |
+| [[`options`](#options)] | optional solving options |
 | ~~[`matrix`]~~ | optional two-dimensional array describing a custom matrix |
 
 ## Jobs
@@ -163,6 +164,66 @@ A `vehicle_step` object has the following properties:
 | [`service_at`] | hard constraint on service time |
 | [`service_after`] | hard constraint on service time lower bound |
 | [`service_before`] | hard constraint on service time upper bound |
+
+## Options
+
+An `options` object may contain:
+
+| Key         | Description |
+| ----------- | ----------- |
+| [`timing_objective`] | a `timing_objective` object controlling task-time optimization |
+
+### `timing_objective`
+
+Controls how the solver selects among valid task-time assignments
+after route assignment is determined. Requires `libglpk`; without
+it, the `timing_objective` key is ignored and default behavior
+applies, with a warning logged.
+
+| Key         | Description |
+| ----------- | ----------- |
+| [`mode`] | `"hierarchical"` (default) or `"weighted"` |
+| [`objectives`] | an ordered array of objective names, optimized in listed order (for hierarchical mode) |
+| [`weights`] | an object mapping objective names to numeric weights (for weighted mode) |
+
+Valid objective names: `"makespan"`, `"target_time"`,
+`"shipment_span"`.
+
+- `makespan`: minimize route completion time minus route start time
+- `target_time`: minimize deviation from per-job `target_time` values
+- `shipment_span`: minimize total time between pickup and delivery for
+  each shipment
+
+When no `timing_objective` is provided, existing VROOM behavior is
+preserved.
+
+**Example (hierarchical):**
+```json
+{
+  "options": {
+    "timing_objective": {
+      "mode": "hierarchical",
+      "objectives": ["target_time", "shipment_span", "makespan"]
+    }
+  }
+}
+```
+
+**Example (weighted):**
+```json
+{
+  "options": {
+    "timing_objective": {
+      "mode": "weighted",
+      "weights": {
+        "target_time": 3,
+        "shipment_span": 2,
+        "makespan": 1
+      }
+    }
+  }
+}
+```
 
 ## Notes
 

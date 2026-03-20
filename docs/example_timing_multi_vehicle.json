@@ -1,0 +1,106 @@
+{
+  "vehicles": [
+    {
+      "id": 1,
+      "start_index": 0,
+      "end_index": 0,
+      "capacity": [3],
+      "time_window": [28800, 50400]
+    },
+    {
+      "id": 2,
+      "start_index": 5,
+      "end_index": 5,
+      "capacity": [3],
+      "time_window": [28800, 50400]
+    }
+  ],
+  "shipments": [
+    {
+      "pickup": {
+        "id": 1,
+        "service": 180,
+        "location_index": 1,
+        "target_time": 30000,
+        "time_windows": [[29000, 33000]]
+      },
+      "delivery": {
+        "id": 2,
+        "service": 180,
+        "location_index": 2,
+        "time_windows": [[30000, 38000]]
+      },
+      "amount": [1]
+    },
+    {
+      "pickup": {
+        "id": 3,
+        "service": 180,
+        "location_index": 3,
+        "target_time": 32000,
+        "time_windows": [[30000, 35000]]
+      },
+      "delivery": {
+        "id": 4,
+        "service": 180,
+        "location_index": 4,
+        "time_windows": [[32000, 40000]]
+      },
+      "amount": [1]
+    },
+    {
+      "pickup": {
+        "id": 5,
+        "service": 180,
+        "location_index": 6,
+        "target_time": 31000,
+        "time_windows": [[29500, 34000]]
+      },
+      "delivery": {
+        "id": 6,
+        "service": 180,
+        "location_index": 7,
+        "time_windows": [[31000, 39000]]
+      },
+      "amount": [1]
+    },
+    {
+      "pickup": {
+        "id": 7,
+        "service": 180,
+        "location_index": 8,
+        "target_time": 33000,
+        "time_windows": [[31000, 36000]]
+      },
+      "delivery": {
+        "id": 8,
+        "service": 180,
+        "location_index": 9,
+        "time_windows": [[33000, 42000]]
+      },
+      "amount": [1]
+    }
+  ],
+  "matrices": {
+    "car": {
+      "durations": [
+        [0, 500, 1100, 800, 1400, 2000, 600, 1200, 900, 1500],
+        [500, 0, 700, 400, 1000, 1600, 300, 800, 600, 1100],
+        [1100, 700, 0, 600, 500, 1200, 800, 300, 700, 600],
+        [800, 400, 600, 0, 700, 1300, 500, 600, 300, 800],
+        [1400, 1000, 500, 700, 0, 900, 1000, 400, 800, 300],
+        [2000, 1600, 1200, 1300, 900, 0, 1500, 1000, 1200, 800],
+        [600, 300, 800, 500, 1000, 1500, 0, 700, 400, 1000],
+        [1200, 800, 300, 600, 400, 1000, 700, 0, 600, 500],
+        [900, 600, 700, 300, 800, 1200, 400, 600, 0, 700],
+        [1500, 1100, 600, 800, 300, 800, 1000, 500, 700, 0]
+      ]
+    }
+  },
+  "options": {
+    "timing_objective": {
+      "mode": "hierarchical",
+      "objectives": ["target_time", "shipment_span", "makespan"]
+    }
+  }
+}
