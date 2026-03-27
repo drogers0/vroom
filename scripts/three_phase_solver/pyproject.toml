@@ -1,0 +1,11 @@
+[project]
+name = "three-phase-solver"
+version = "0.1.0"
+description = "Three-phase VROOM solver wrapper for soft requested times and ride-time slack collapse"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "requests",
+    "matplotlib",
+    "numpy",
+]

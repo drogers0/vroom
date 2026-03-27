@@ -5,3 +5,4 @@ lib/
 build/
 .vscode
 .idea
+scripts/three_phase_solver/output/
