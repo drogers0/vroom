@@ -31,6 +31,9 @@ struct VehicleStep {
   const STEP_TYPE type;
   const std::optional<JOB_TYPE> job_type;
   const ForcedService forced_service;
+  // Hard bound on service start relative to the matching pickup's
+  // departure, only ever set on delivery steps.
+  const std::optional<Duration> service_within;
 
   // Stores rank of current step (in input.jobs vector for a
   // job/pickup/delivery and in vehicle.breaks for a break).
@@ -43,7 +46,10 @@ struct VehicleStep {
   VehicleStep(STEP_TYPE type, Id id, ForcedService&& forced_service);
 
   // Used for single jobs, pickups and deliveries.
-  VehicleStep(JOB_TYPE job_type, Id id, ForcedService&& forced_service);
+  VehicleStep(JOB_TYPE job_type,
+              Id id,
+              ForcedService&& forced_service,
+              std::optional<UserDuration> service_within = std::nullopt);
 };
 
 } // namespace vroom

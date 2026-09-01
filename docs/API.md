@@ -33,9 +33,11 @@ routing problem and outputs a set of routes matching all constraints.
 Activated using `-c`, this mode aims at choosing ETA for all route
 steps. It takes the same input format augmented with a description of
 the expected route for each vehicle. All constraints in input
-implicitly become soft constraints. The output is a set of routes
-matching the expected description while minimizing timing violations
-and reporting all constraint violations.
+implicitly become soft constraints, except step-level keys
+(`service_at`, `service_after`, `service_before`, `service_within`)
+which are hard constraints. The output is a set of routes matching the
+expected description while minimizing timing violations and reporting
+all constraint violations.
 
 # Input
 
@@ -162,6 +164,7 @@ A `vehicle_step` object has the following properties:
 | [`service_at`] | hard constraint on service time |
 | [`service_after`] | hard constraint on service time lower bound |
 | [`service_before`] | hard constraint on service time upper bound |
+| [`service_within`] | hard constraint on service start relative to the matching pickup's departure, only valid on `delivery` steps |
 
 ## Notes
 
@@ -285,6 +288,13 @@ The `steps` array describes exactly the route ordering that will be
 generated in response. The (optional) `service_*` keys for
 `vehicle_step` objects are used as additional hard timing constraints.
 
+`service_within` is only valid on `delivery` steps: the delivery
+service has to start within the provided number of seconds after the
+matching pickup's departure. It is the hard counterpart of the soft
+shipment-level `max_transit_time`, and is ignored (reporting the usual
+`precedence` violation) if the matching pickup is missing from the
+route or ordered after the delivery.
+
 #### In solving mode
 
 Using `steps` for vehicles in default VRP solving mode is a way to
@@ -298,7 +308,7 @@ user-defined starting point.
 In that context:
 - only steps with `type=job`, `pickup` or `delivery` are used to
   decide initial routes ordering
-- `service_*` keys are not used
+- `service_*` keys (including `service_within`) are not used
 
 An error is raised if for any of the vehicles the provided `steps`
 describe a route that is invalid with regard to any of the

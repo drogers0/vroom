@@ -39,11 +39,16 @@ VehicleStep::VehicleStep(STEP_TYPE type, Id id, ForcedService&& forced_service)
 
 VehicleStep::VehicleStep(JOB_TYPE job_type,
                          Id id,
-                         ForcedService&& forced_service)
+                         ForcedService&& forced_service,
+                         std::optional<UserDuration> service_within)
   : id(id),
     type(STEP_TYPE::JOB),
     job_type(job_type),
-    forced_service(std::move(forced_service)) {
+    forced_service(std::move(forced_service)),
+    service_within(service_within.has_value()
+                     ? std::optional<Duration>(utils::scale_from_user_duration(
+                         service_within.value()))
+                     : std::nullopt) {
 }
 
 } // namespace vroom

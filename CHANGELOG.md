@@ -7,6 +7,7 @@
 #### Features
 
 - Support for `max_transit_time` on shipments, bounding time from pickup departure to delivery start (#703)
+- Support for `service_within` on delivery steps in plan mode, a hard bound on delivery service start relative to the matching pickup's departure
 
 ### Fixed
 

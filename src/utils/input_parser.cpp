@@ -359,7 +359,21 @@ inline std::vector<VehicleStep> get_vehicle_steps(const rapidjson::Value& v) {
       }
       ForcedService forced_service(at, after, before);
 
+      std::optional<UserDuration> service_within;
+      if (json_step.HasMember("service_within")) {
+        if (!json_step["service_within"].IsUint()) {
+          throw InputException("Invalid service_within value.");
+        }
+
+        service_within = json_step["service_within"].GetUint();
+      }
+
       const auto type_str = get_string(json_step, "type");
+
+      if (service_within.has_value() && type_str != "delivery") {
+        throw InputException(
+          "service_within is only valid for delivery steps.");
+      }
 
       if (type_str == "start") {
         steps.emplace_back(STEP_TYPE::START, std::move(forced_service));
@@ -386,7 +400,8 @@ inline std::vector<VehicleStep> get_vehicle_steps(const rapidjson::Value& v) {
       } else if (type_str == "delivery") {
         steps.emplace_back(JOB_TYPE::DELIVERY,
                            json_step["id"].GetUint64(),
-                           std::move(forced_service));
+                           std::move(forced_service),
+                           service_within);
       } else if (type_str == "break") {
         steps.emplace_back(STEP_TYPE::BREAK,
                            json_step["id"].GetUint64(),

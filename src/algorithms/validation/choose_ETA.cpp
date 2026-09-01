@@ -229,7 +229,8 @@ Route choose_ETA(const Input& input,
     assert(ri == action_times.size());
   }
 
-  // Collect constrained shipment pairs for transit-time MIP soft terms.
+  // Collect constrained shipment pairs: soft MIP terms from shipment
+  // max_transit_time, hard rows from delivery-step service_within.
   struct RidePair {
     unsigned pickup_step;
     unsigned delivery_step;
@@ -237,6 +238,7 @@ Route choose_ETA(const Input& input,
     Duration action_time; // A_P: must match engine exactly
   };
   std::vector<RidePair> ride_pairs;
+  std::vector<RidePair> hard_pairs;
   {
     std::unordered_map<Index, unsigned> delivery_step_of;
     for (unsigned s = 1; s + 1 < steps.size(); ++s) {
@@ -251,15 +253,21 @@ Route choose_ETA(const Input& input,
       const auto& job = input.jobs[steps[s].rank];
       if (job.type != JOB_TYPE::PICKUP)
         continue;
-      if (!job.max_transit_time.has_value())
-        continue;
       const Index delivery_rank = steps[s].rank + 1;
       auto it = delivery_step_of.find(delivery_rank);
       // Skip if delivery absent or comes before pickup (precedence violation).
       if (it == delivery_step_of.end() || it->second < s)
         continue;
-      ride_pairs.push_back(
-        {s, it->second, job.max_transit_time.value(), step_action_time[s]});
+      if (job.max_transit_time.has_value()) {
+        ride_pairs.push_back(
+          {s, it->second, job.max_transit_time.value(), step_action_time[s]});
+      }
+      if (steps[it->second].service_within.has_value()) {
+        hard_pairs.push_back({s,
+                              it->second,
+                              steps[it->second].service_within.value(),
+                              step_action_time[s]});
+      }
     }
   }
   const unsigned P = static_cast<unsigned>(ride_pairs.size());
@@ -391,6 +399,18 @@ Route choose_ETA(const Input& input,
     // Do not use max value for a uint64_t here since it messes up
     // precision withing glpk.
     horizon_end = std::numeric_limits<uint32_t>::max();
+  } else if (!hard_pairs.empty()) {
+    // Hard transit rows can invalidate the sample schedule, so
+    // sample_violations no longer bounds the achievable optimum and the
+    // margin loops below could clip the only compliant schedules. Use
+    // maximal structural margins instead: nothing further than the route
+    // span past the extreme time windows can be part of an optimum.
+    horizon_start -= std::min(horizon_start, relative_ETA.back());
+    horizon_end += relative_ETA.back();
+
+    if (makespan_estimate == 0) {
+      makespan_estimate = horizon_end - horizon_start;
+    }
   } else {
     // Advance "absolute" planning horizon start so as to allow lead
     // time at startup. Compute minimal delay values for possible start of
@@ -752,7 +772,11 @@ Route choose_ETA(const Input& input,
 
   name = "Sigma_Y";
   glp_set_row_name(lp, current_row, name);
-  if (sample_violations == 0) {
+  if (!hard_pairs.empty()) {
+    // Hard transit rows can invalidate the sample schedule, so
+    // sample_violations is not a valid upper bound anymore.
+    glp_set_row_bnds(lp, current_row, GLP_LO, 0, 0);
+  } else if (sample_violations == 0) {
     glp_set_row_bnds(lp, current_row, GLP_FX, 0, 0);
   } else {
     glp_set_row_bnds(lp, current_row, GLP_DB, 0, sample_violations);
@@ -1093,6 +1117,29 @@ Route choose_ETA(const Input& input,
                       static_cast<int>(P),
                       ind.data(),
                       val.data());
+    }
+  }
+
+  // Per-pair hard transit rows from step-level service_within:
+  // t_{s_D} - t_{s_P} <= A_P + cap_P, no excess variable. Appended after
+  // the base matrix so the row indices pinned in phase 2 do not shift.
+  if (!hard_pairs.empty()) {
+    const int first_hard_row =
+      glp_add_rows(lp, static_cast<int>(hard_pairs.size()));
+    for (unsigned h = 0; h < hard_pairs.size(); ++h) {
+      const int row = first_hard_row + static_cast<int>(h);
+      const auto& hp = hard_pairs[h];
+      auto r_name = std::format("H{}", h);
+      glp_set_row_name(lp, row, r_name.c_str());
+      const double rhs = static_cast<double>(hp.action_time + hp.cap);
+      glp_set_row_bnds(lp, row, GLP_UP, 0.0, rhs);
+      int ind[3];
+      double val[3];
+      ind[1] = static_cast<int>(hp.delivery_step + 1); // t_{s_D}
+      val[1] = 1.0;
+      ind[2] = static_cast<int>(hp.pickup_step + 1); // t_{s_P}
+      val[2] = -1.0;
+      glp_set_mat_row(lp, row, 2, ind, val);
     }
   }
 
