@@ -1,0 +1,70 @@
+=== SHAVING A/B ===
+inst      ship A_served B_served   A_cost   B_cost   A_ms   B_ms capchk
+lc101       53       36       53      982     1144    250    756     ok
+lc102       53       31       53     1082     1266    343    914     ok
+lc103       52       22       52      790     1262    194   1411     ok
+lc104       53       10       53      525     1077     56   1714     ok
+lc105       53       33       53      910     1253    252   1074     ok
+lc106       53       30       53      787     1232    200    984     ok
+lc107       53       30       53      856     1414    160   1215     ok
+lc108       53       22       53      643     1358    174   1183     ok
+lc109       53       25       53      907     1079    166   1289     ok
+lr101       53       51       53     1637     1641    384    646     ok
+lr102       55       41       55     1539     1726    394    952     ok
+lr103       52       28       52     1269     1659    201   1442     ok
+lr104       52       10       52      330     1356     64   1571     ok
+lr105       53       32       53     1203     1698    608   1586     ok
+lr106       52       29       52     1224     1668    327   2014     ok
+lr107       52       25       52     1078     1526    281   2824     ok
+lr108       50       20       50      797     1327    204   2058     ok
+lr109       53       32       53     1322     1633    330   1303     ok
+lr110       52       34       52     1343     1451    276   1510     ok
+lr111       54       40       54     1368     1396    408   1377     ok
+lr112       53       38       53     1748     1289    201   1435     ok
+lrc101      53       38       53     1690     1903    316    733     ok
+lrc102      53       29       53     1457     1838    140    972     ok
+lrc103      53       25       53     1272     1627    200   1389     ok
+lrc104      54       20       54      814     1460    140   1518     ok
+lrc105      54       43       54     1957     2006    315    969     ok
+lrc106      53       38       53     1628     1856    292   1027     ok
+lrc107      53       35       53     1861     1605    253   1515     ok
+lrc108      52       39       52     2209     1487    259   1259     ok
+
+TOTAL shipments=1532 workaround_served=886 exact_served=1532 (+646)
+cost: workaround=35228 exact=43237
+total median ms: workaround=7387 exact=38640
+instances with cap violations in workaround output: 0
+
+=== WORSTCASE INFEASIBILITY ===
+inst     unassigned infeasible  unproven
+lc101            29         29         0
+lc102            24         24         0
+lc103            26         26         0
+lc104            14         14         0
+lc105            27         27         0
+lc106            23         23         0
+lc107            31         31         0
+lc108            26         26         0
+lc109            24         24         0
+lr101            31         31         0
+lr102            35         35         0
+lr103            24         24         0
+lr104            17         17         0
+lr105            30         30         0
+lr106            28         28         0
+lr107            21         21         0
+lr108             8          8         0
+lr109            24         24         0
+lr110            21         21         0
+lr111            23         23         0
+lr112            16         16         0
+lrc101           26         26         0
+lrc102           29         29         0
+lrc103           20         20         0
+lrc104            7          7         0
+lrc105           25         25         0
+lrc106           16         16         0
+lrc107           18         18         0
+lrc108           11         11         0
+
+TOTAL unassigned shipments=654 provably infeasible alone-on-a-vehicle=654 (100.0%) unproven=0

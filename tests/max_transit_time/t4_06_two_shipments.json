@@ -1,0 +1,38 @@
+{
+  "matrices": {
+    "car": {
+      "durations": [
+        [0, 200, 400],
+        [200, 0, 200],
+        [400, 200, 0]
+      ]
+    }
+  },
+  "shipments": [
+    {
+      "pickup": {"id": 1, "location_index": 0},
+      "delivery": {"id": 2, "location_index": 1},
+      "max_transit_time": 100
+    },
+    {
+      "pickup": {"id": 3, "location_index": 1},
+      "delivery": {"id": 4, "location_index": 2},
+      "max_transit_time": 100
+    }
+  ],
+  "vehicles": [
+    {
+      "id": 1,
+      "profile": "car",
+      "start_index": 0,
+      "steps": [
+        {"type": "start", "service_at": 0},
+        {"type": "pickup", "id": 1},
+        {"type": "delivery", "id": 2},
+        {"type": "pickup", "id": 3},
+        {"type": "delivery", "id": 4},
+        {"type": "end"}
+      ]
+    }
+  ]
+}

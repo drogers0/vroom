@@ -1,0 +1,26 @@
+{
+  "matrices": {
+    "car": {
+      "durations": [[0, 50, 0], [50, 0, 0], [0, 50, 0]]
+    }
+  },
+  "shipments": [
+    {
+      "pickup": {
+        "id": 1,
+        "location_index": 0,
+        "setup": 20,
+        "time_windows": [[0, 100]]
+      },
+      "delivery": {
+        "id": 2,
+        "location_index": 1,
+        "time_windows": [[170, 1000000]]
+      },
+      "max_transit_time": 60
+    }
+  ],
+  "vehicles": [
+    {"id": 1, "profile": "car", "start_index": 2}
+  ]
+}

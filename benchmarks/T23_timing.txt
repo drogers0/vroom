@@ -1,0 +1,61 @@
+T23 Incremental Prefix Seeding — A/B Timing Benchmark
+=====================================================
+
+Date: 2026-08-19
+Branch: feature/shipment-max-ride-time
+Change: seed compute_cap_compliant_schedule (candidate overload) from committed
+        route arrays at first_rank instead of re-simulating the full prefix.
+        Equivalence shadow pass gated behind opt-in VROOM_ENGINE_SEED_SHADOW
+        macro (default build unaffected; vroom's makefile ships asserts on,
+        so tying the shadow to NDEBUG would have cost 10-20% in default builds).
+
+Methodology
+-----------
+- 29 alpha2 constrained PDPTW instances (Li & Lim 100-task, TW-aware caps).
+- Matched builds: BOTH binaries default makefile flags (-O3, asserts on,
+  no shadow). Single-threaded (-t 1). 3 runs per instance, median.
+
+Results (median ms)
+-------------------
+lc101 pre=890ms post=947ms speedup=0.940
+lc102 pre=1039ms post=988ms speedup=1.052
+lc103 pre=1561ms post=1576ms speedup=0.991
+lc104 pre=1972ms post=2023ms speedup=0.975
+lc105 pre=1275ms post=1276ms speedup=0.999
+lc106 pre=1134ms post=1139ms speedup=0.995
+lc107 pre=1432ms post=1475ms speedup=0.971
+lc108 pre=1401ms post=1464ms speedup=0.958
+lc109 pre=1776ms post=1895ms speedup=0.937
+lr101 pre=872ms post=806ms speedup=1.081
+lr102 pre=1226ms post=1301ms speedup=0.942
+lr103 pre=1885ms post=1955ms speedup=0.964
+lr104 pre=1973ms post=1977ms speedup=0.998
+lr105 pre=1216ms post=1192ms speedup=1.020
+lr106 pre=1598ms post=1652ms speedup=0.968
+lr107 pre=2071ms post=1898ms speedup=1.091
+lr108 pre=1620ms post=1576ms speedup=1.028
+lr109 pre=1291ms post=1288ms speedup=1.002
+lr110 pre=1995ms post=1672ms speedup=1.193
+lr111 pre=1675ms post=1715ms speedup=0.977
+lr112 pre=1667ms post=1653ms speedup=1.008
+lrc101 pre=886ms post=858ms speedup=1.033
+lrc102 pre=1209ms post=1165ms speedup=1.037
+lrc103 pre=1697ms post=1729ms speedup=0.981
+lrc104 pre=1878ms post=2009ms speedup=0.935
+lrc105 pre=1400ms post=1254ms speedup=1.117
+lrc106 pre=1282ms post=1218ms speedup=1.053
+lrc107 pre=1974ms post=1857ms speedup=1.063
+lrc108 pre=1711ms post=1549ms speedup=1.104
+GEOMEAN_SPEEDUP=1.0125 over 29 instances
+
+Verification
+------------
+- Shadow build (VROOM_ENGINE_SEED_SHADOW): full unseeded engine re-run asserts
+  identical decision, schedule, and break timings at every seeded call.
+  29/29 alpha2 instances clean; harness 25/25 (release and shadow builds);
+  feature suite 28/28 under shadow binary.
+- Parity pre vs post (-t 1, computing_times excluded): 56/58 byte-identical
+  (29 alpha2 + 29 base); the 2 flagged base instances are pre-existing rare
+  run-to-run solver nondeterminism (pre binary alone produced both outputs
+  across 5 runs on lc107; lc109 matched on re-run), not the seeding change.
+- Alpha2 cap property check: 0 violations on all 29 instances.

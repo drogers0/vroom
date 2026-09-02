@@ -1,0 +1,3 @@
+alpha2: files=29 tier2_reached=39417268 witness_accepts=8689990 (22.0%) engine_calls=30727278 engine_accepts=30669372 (99.8% of engine calls accept)
+worstcase: files=29 tier2_reached=14754429 witness_accepts=5180939 (35.1%) engine_calls=9573490 engine_accepts=9461693 (98.8% of engine calls accept)
+mixed: files=37 tier2_reached=116267427 witness_accepts=51443751 (44.2%) engine_calls=64823676 engine_accepts=64792378 (100.0% of engine calls accept)

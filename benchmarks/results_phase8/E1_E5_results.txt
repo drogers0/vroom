@@ -1,0 +1,31 @@
+=== E5 CORNER SOLVE SCALING (single vehicle, every 2nd stop constrained pickup, -t 1, median of 3; N=400 omitted: single solve exceeds 15 min, growth already determined by N<=200) ===
+N=  25 route_len=  50 median_ms=     107 unassigned=  0 slope_vs_prev=0.00
+N=  50 route_len= 100 median_ms=     946 unassigned=  0 slope_vs_prev=3.15
+N= 100 route_len= 200 median_ms=   14317 unassigned=  0 slope_vs_prev=3.92
+N= 200 route_len= 400 median_ms=  288744 unassigned=  0 slope_vs_prev=4.33
+
+=== E1 COMPLEXITY BENCH RERUN (post witness fix) ===
+L = committed route length (jobs), P = L/2 constrained pairs, medians of 15 in microseconds
+slope = log2 ratio vs previous row (1 = linear, 2 = quadratic)
+
+     L     engine  slope   fulltier  slope    witness  slope
+    16        2.0   0.00        1.0   0.00        0.0   0.00
+    32        4.0   1.00        2.0   1.00        0.0   0.00
+    64       11.0   1.46        6.0   1.58        0.0   0.00
+   128       38.0   1.79       20.0   1.74        1.0   0.00
+   256      153.0   2.01       66.0   1.72        1.0   0.00
+   512      691.0   2.18      269.0   2.03        2.0   1.00
+  1024     2201.0   1.67     1007.0   1.90        3.0   0.58
+
+=== E1 TIMING REFRESH: same-instance capped/uncapped, alpha2 subset (3-rep medians) ===
+lc101: capped=632ms uncapped=191ms ratio=3.31
+lc104: capped=1406ms uncapped=592ms ratio=2.37
+lc107: capped=1023ms uncapped=242ms ratio=4.23
+lr101: capped=533ms uncapped=386ms ratio=1.38
+lr104: capped=1332ms uncapped=714ms ratio=1.86
+lr107: capped=1286ms uncapped=646ms ratio=1.99
+lr110: capped=1153ms uncapped=654ms ratio=1.76
+lrc101: capped=613ms uncapped=420ms ratio=1.46
+lrc104: capped=1267ms uncapped=613ms ratio=2.07
+lrc107: capped=1271ms uncapped=645ms ratio=1.97
+GEOMEAN capped/uncapped: 2.11 over 10 instances

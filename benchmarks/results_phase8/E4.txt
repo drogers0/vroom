@@ -1,0 +1,39 @@
+E4 — Quality evidence: capped solve vs. uncapped-then-filtered baseline
+================================================================================
+NOTE: base_cost includes dropped shipments' travel — overstates efficiency.
+================================================================================
+instance      capped_served  capped_cost  filtered_served   base_cost  note
+--------------------------------------------------------------------------------
+lc101                    53         1144               41         809  capped+12
+lc102                    53         1266               30         809  capped+23
+lc103                    52         1262               26         807  capped+26
+lc104                    53         1077               23         797  capped+30
+lc105                    53         1253               37         809  capped+16
+lc106                    53         1232               32         809  capped+21
+lc107                    53         1414               27         809  capped+26
+lc108                    53         1358               25         805  capped+28
+lc109                    53         1079               22         805  capped+31
+lr101                    53         1641               51        1612  capped+2
+lr102                    55         1726               43        1449  capped+12
+lr103                    52         1659               31        1258  capped+21
+lr104                    52         1356               28         977  capped+24
+lr105                    53         1698               38        1340  capped+15
+lr106                    52         1668               30        1213  capped+22
+lr107                    52         1526               23        1075  capped+29
+lr108                    50         1327               16         934  capped+34
+lr109                    53         1633               26        1205  capped+27
+lr110                    52         1451               26        1157  capped+26
+lr111                    54         1396               27        1072  capped+27
+lr112                    53         1289               25         999  capped+28
+lrc101                   53         1903               37        1688  capped+16
+lrc102                   53         1838               33        1538  capped+20
+lrc103                   53         1627               30        1223  capped+23
+lrc104                   54         1460               27        1103  capped+27
+lrc105                   54         2006               36        1606  capped+18
+lrc106                   53         1856               35        1453  capped+18
+lrc107                   53         1605               24        1193  capped+29
+lrc108                   52         1487               23        1139  capped+29
+--------------------------------------------------------------------------------
+TOTAL                  1532        43237              872       32493
+
+  capped serves +660 more shipments than solve-then-filter (advantage)

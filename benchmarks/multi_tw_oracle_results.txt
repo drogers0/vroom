@@ -1,0 +1,4 @@
+2-pair: configs=20000 window_infeasible=13820 budget_skips=0 both_accept=1496 both_reject=4684 misses=0 unsound=0 (miss rate 0.000% of feasible)
+3-pair: configs=8000 window_infeasible=2205 budget_skips=0 both_accept=3136 both_reject=2659 misses=0 unsound=0 (miss rate 0.000% of feasible)
+4-pair: configs=3000 window_infeasible=1414 budget_skips=0 both_accept=452 both_reject=1134 misses=0 unsound=0 (miss rate 0.000% of feasible)
+5-pair: configs=1500 window_infeasible=1003 budget_skips=0 both_accept=66 both_reject=431 misses=0 unsound=0 (miss rate 0.000% of feasible)

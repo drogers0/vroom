@@ -1,0 +1,20 @@
+=== ORACLE 2-PAIR + 3-PAIR ===
+
+2-pair: configs=20000 tw_infeasible_skipped=13020 both_accept=2028 both_reject=4952 engine_misses=0 unsound=0
+2-pair miss rate: 0.000% of feasible configs
+
+3-pair: configs=2000 tw_infeasible_skipped=1925 both_accept=3 both_reject=72 engine_misses=0 unsound=0
+3-pair miss rate: 0.000% of feasible configs
+
+=== MULTITHREADED PASS ===
+hardware: Apple M2 Pro, 10 cores, 32 GB RAM, macOS 15.7.3
+threads=4 (vroom default), reps=5 per instance, medians reported
+capped set:
+  instances=29 shipments=1532 best-run unassigned=0
+  per-instance median ms: median=609 min=380 max=763
+  instances with run-to-run cost spread: 0/29
+  runs with cap violations: 0 (of 145)
+uncapped set:
+  instances=29 shipments=1532 best-run unassigned=0
+  per-instance median ms: median=384 min=147 max=488
+  instances with run-to-run cost spread: 0/29

@@ -1,0 +1,17 @@
+Plan-mode (-c) timing: capped vs caps-stripped plan inputs, medians of 3 (wall ms).
+Also: caps-stripped plan output vs upstream master binary (parity when the field is absent).
+  lc101: capped=20ms stripped=19ms ratio=1.03
+  lc105: capped=19ms stripped=19ms ratio=1.02
+  lc109: capped=19ms stripped=19ms ratio=1.01
+  lr104: capped=19ms stripped=19ms ratio=1.01
+  lr108: capped=20ms stripped=19ms ratio=1.03
+  lr112: capped=19ms stripped=19ms ratio=1.04
+  lrc104: capped=19ms stripped=19ms ratio=1.03
+  lrc108: capped=19ms stripped=19ms ratio=1.02
+alpha2_100task: GEOMEAN capped/stripped 1.02 over 8; stripped-vs-master byte parity 0/8
+  LC1_4_1: capped=35ms stripped=34ms ratio=1.01
+  LC1_4_2: capped=35ms stripped=34ms ratio=1.00
+  LC1_4_3: capped=35ms stripped=35ms ratio=1.01
+  LC1_4_4: capped=35ms stripped=35ms ratio=1.00
+mixed_400task: GEOMEAN capped/stripped 1.00 over 4; stripped-vs-master byte parity 0/4
+CORRECTED parity: caps-stripped plan-mode output vs GLPK-enabled master: byte-identical 12/12

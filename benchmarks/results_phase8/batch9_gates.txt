@@ -1,0 +1,20 @@
+DIFF benchmarks/instances_worstcase/100/lc107.json
+DIFF benchmarks/instances_worstcase/100/lr103.json
+DIFF benchmarks/instances_worstcase/100/lr107.json
+checked=87 diffs=3
+3-pair: configs=8000 tw_infeasible_skipped=6873 both_accept=74 both_reject=1053 engine_misses=0 unsound=0
+3-pair miss rate: 0.000% of feasible configs
+both_accept=303 both_reject=1066 conservative_rejects=0 unsound=0
+conservative rate: 0.000% of oracle-feasible insertions
+=== timing subset post-witness-halfpair-fix (capped/uncapped, 3-rep medians) ===
+lc101: capped=599 uncapped=196 ratio=3.05
+lc104: capped=1331 uncapped=603 ratio=2.21
+lc107: capped=966 uncapped=247 ratio=3.90
+lr101: capped=495 uncapped=391 ratio=1.26
+lr104: capped=1214 uncapped=727 ratio=1.67
+lr107: capped=1208 uncapped=663 ratio=1.82
+lr110: capped=1082 uncapped=668 ratio=1.62
+lrc101: capped=575 uncapped=426 ratio=1.35
+lrc104: capped=1185 uncapped=620 ratio=1.91
+lrc107: capped=1207 uncapped=654 ratio=1.85
+GEOMEAN 1.95

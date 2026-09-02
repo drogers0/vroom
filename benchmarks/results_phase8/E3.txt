@@ -1,0 +1,74 @@
+=== alpha2 ===
+E3 — Plan-mode round-trip check
+============================================================
+dir                  instance      routes  violations flag
+------------------------------------------------------------
+alpha2               lc101             14           0 
+alpha2               lc102             16           0 
+alpha2               lc103             13           0 
+alpha2               lc104             11           0 
+alpha2               lc105             14           0 
+alpha2               lc106             14           0 
+alpha2               lc107             17           0 
+alpha2               lc108             17           0 
+alpha2               lc109             12           0 
+alpha2               lr101             20           0 
+alpha2               lr102             20           0 
+alpha2               lr103             17           0 
+alpha2               lr104             15           0 
+alpha2               lr105             21           0 
+alpha2               lr106             18           0 
+alpha2               lr107             15           0 
+alpha2               lr108             13           0 
+alpha2               lr109             18           0 
+alpha2               lr110             15           0 
+alpha2               lr111             15           0 
+alpha2               lr112             13           0 
+alpha2               lrc101            19           0 
+alpha2               lrc102            18           0 
+alpha2               lrc103            14           0 
+alpha2               lrc104            12           0 
+alpha2               lrc105            19           0 
+alpha2               lrc106            17           0 
+alpha2               lrc107            15           0 
+alpha2               lrc108            13           0 
+------------------------------------------------------------
+Total max_transit_time violations: 0
+PASS: zero violations on all instances.
+=== instances_multiwindow (regenerated, break-free) ===
+E3 — Plan-mode round-trip check
+============================================================
+dir                  instance      routes  violations flag
+------------------------------------------------------------
+instances_multiwindow lc101             14           0 
+instances_multiwindow lc102             15           0 
+instances_multiwindow lc103             13           0 
+instances_multiwindow lc104             12           0 
+instances_multiwindow lc105             15           0 
+instances_multiwindow lc106             14           0 
+instances_multiwindow lc107             13           0 
+instances_multiwindow lc108             15           0 
+instances_multiwindow lc109             12           0 
+instances_multiwindow lr101             20           0 
+instances_multiwindow lr102             20           0 
+instances_multiwindow lr103             17           0 
+instances_multiwindow lr104             15           0 
+instances_multiwindow lr105             20           0 
+instances_multiwindow lr106             17           0 
+instances_multiwindow lr107             15           0 
+instances_multiwindow lr108             13           0 
+instances_multiwindow lr109             17           0 
+instances_multiwindow lr110             15           0 
+instances_multiwindow lr111             15           0 
+instances_multiwindow lr112             13           0 
+instances_multiwindow lrc101            18           0 
+instances_multiwindow lrc102            16           0 
+instances_multiwindow lrc103            14           0 
+instances_multiwindow lrc104            12           0 
+instances_multiwindow lrc105            18           0 
+instances_multiwindow lrc106            15           0 
+instances_multiwindow lrc107            14           0 
+instances_multiwindow lrc108            13           0 
+------------------------------------------------------------
+Total max_transit_time violations: 0
+PASS: zero violations on all instances.

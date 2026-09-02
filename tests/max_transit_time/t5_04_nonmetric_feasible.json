@@ -1,0 +1,53 @@
+{
+ "matrices": {
+  "car": {
+   "durations": [
+    [
+     0,
+     200,
+     50
+    ],
+    [
+     200,
+     0,
+     50
+    ],
+    [
+     50,
+     50,
+     0
+    ]
+   ]
+  }
+ },
+ "vehicles": [
+  {
+   "id": 1,
+   "start_index": 0,
+   "end_index": 0,
+   "profile": "car"
+  }
+ ],
+ "jobs": [
+  {
+   "id": 10,
+   "location_index": 2,
+   "service": 0
+  }
+ ],
+ "shipments": [
+  {
+   "pickup": {
+    "id": 1,
+    "location_index": 0,
+    "service": 0
+   },
+   "delivery": {
+    "id": 2,
+    "location_index": 1,
+    "service": 0
+   },
+   "max_transit_time": 160
+  }
+ ]
+}

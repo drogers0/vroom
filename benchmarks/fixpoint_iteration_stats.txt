@@ -1,0 +1,6 @@
+Fixpoint iteration statistics, current binary (post witness fix and
+delay-carrying advancement), -t 1.
+
+alpha2: files=29 engine_calls=30669948 cap_hits=143 (0.0005%) max_iters_used=11 hist 0:17693275 1:11499014 2:676056 3-4:754197 5-8:47362 >8:44
+mixed: files=37 engine_calls=64790163 cap_hits=0 (0.0000%) max_iters_used=7 hist 0:39327847 1:24291399 2:541533 3-4:625899 5-8:3485 >8:0
+worstcase: files=29 engine_calls=9473788 cap_hits=6371 (0.0672%) max_iters_used=10 hist 0:7994957 1:1413340 2:29513 3-4:33977 5-8:1980 >8:21

@@ -1,0 +1,14 @@
+{
+  "matrices": {
+    "car": {
+      "durations": [[0, 100], [100, 0]]
+    }
+  },
+  "jobs": [
+    {"id": 1, "location_index": 0, "max_transit_time": 30},
+    {"id": 2, "location_index": 1}
+  ],
+  "vehicles": [
+    {"id": 1, "profile": "car", "start_index": 0}
+  ]
+}

@@ -1,0 +1,6 @@
+configs: 3000
+  pre_existing_infeasible: 198
+  key_repairs_pre_existing: 13
+  feasible_ok: 1421
+  infeasible_ok: 1368
+  FAILURES: 0

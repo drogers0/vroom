@@ -1,0 +1,63 @@
+lc101: parity=ok free=28ms ref=29ms hard(53 keys)=30ms feedback=ok
+lc102: parity=ok free=33ms ref=32ms hard(53 keys)=26ms feedback=ok
+lc103: parity=ok free=42ms ref=40ms hard(52 keys)=38ms feedback=ok
+lc104: parity=ok free=33ms ref=35ms hard(53 keys)=52ms feedback=ok
+lc105: parity=ok free=37ms ref=50ms hard(53 keys)=28ms feedback=ok
+lc106: parity=ok free=38ms ref=38ms hard(53 keys)=36ms feedback=ok
+lc107: parity=ok free=43ms ref=31ms hard(53 keys)=29ms feedback=ok
+lc108: parity=ok free=30ms ref=43ms hard(53 keys)=40ms feedback=ok
+lc109: parity=ok free=38ms ref=51ms hard(53 keys)=22ms feedback=ok
+lr101: parity=ok free=27ms ref=26ms hard(53 keys)=38ms feedback=ok
+lr102: parity=ok free=29ms ref=30ms hard(55 keys)=30ms feedback=ok
+lr103: parity=ok free=35ms ref=36ms hard(52 keys)=37ms feedback=ok
+lr104: parity=ok free=37ms ref=44ms hard(52 keys)=45ms feedback=ok
+lr105: parity=ok free=41ms ref=42ms hard(53 keys)=36ms feedback=ok
+lr106: parity=ok free=46ms ref=39ms hard(52 keys)=51ms feedback=ok
+lr107: parity=ok free=44ms ref=31ms hard(52 keys)=33ms feedback=ok
+lr108: parity=ok free=34ms ref=46ms hard(50 keys)=28ms feedback=ok
+lr109: parity=ok free=33ms ref=35ms hard(53 keys)=35ms feedback=ok
+lr110: parity=ok free=30ms ref=32ms hard(52 keys)=45ms feedback=ok
+lr111: parity=ok free=32ms ref=31ms hard(54 keys)=38ms feedback=ok
+lr112: parity=ok free=29ms ref=39ms hard(53 keys)=37ms feedback=ok
+lrc101: parity=ok free=36ms ref=36ms hard(53 keys)=36ms feedback=ok
+lrc102: parity=ok free=25ms ref=29ms hard(53 keys)=34ms feedback=ok
+lrc103: parity=ok free=30ms ref=40ms hard(53 keys)=42ms feedback=ok
+lrc104: parity=ok free=31ms ref=37ms hard(54 keys)=40ms feedback=ok
+lrc105: parity=ok free=31ms ref=32ms hard(54 keys)=33ms feedback=ok
+lrc106: parity=ok free=31ms ref=30ms hard(53 keys)=32ms feedback=ok
+lrc107: parity=ok free=38ms ref=35ms hard(53 keys)=41ms feedback=ok
+lrc108: parity=ok free=27ms ref=29ms hard(52 keys)=32ms feedback=ok
+lc101: parity=ok free=36ms ref=45ms hard(53 keys)=32ms feedback=ok
+lc102: parity=ok free=44ms ref=35ms hard(53 keys)=47ms feedback=ok
+lc103: parity=ok free=46ms ref=35ms hard(52 keys)=41ms feedback=ok
+lc104: parity=ok free=28ms ref=37ms hard(53 keys)=43ms feedback=ok
+lc105: parity=ok free=36ms ref=30ms hard(53 keys)=29ms feedback=ok
+lc106: parity=ok free=41ms ref=26ms hard(53 keys)=29ms feedback=ok
+lc107: parity=ok free=32ms ref=45ms hard(53 keys)=36ms feedback=ok
+lc108: parity=ok free=37ms ref=39ms hard(53 keys)=37ms feedback=ok
+lc109: parity=ok free=37ms ref=32ms hard(53 keys)=34ms feedback=ok
+lr101: parity=ok free=28ms ref=30ms hard(53 keys)=32ms feedback=ok
+lr102: parity=ok free=42ms ref=39ms hard(55 keys)=23ms feedback=ok
+lr103: parity=ok free=41ms ref=33ms hard(52 keys)=32ms feedback=ok
+lr104: parity=ok free=27ms ref=44ms hard(52 keys)=38ms feedback=ok
+lr105: parity=ok free=35ms ref=33ms hard(53 keys)=36ms feedback=ok
+lr106: parity=ok free=36ms ref=26ms hard(52 keys)=27ms feedback=ok
+lr107: parity=ok free=33ms ref=41ms hard(52 keys)=36ms feedback=ok
+lr108: parity=ok free=26ms ref=44ms hard(50 keys)=116ms feedback=ok
+lr109: parity=ok free=39ms ref=38ms hard(53 keys)=36ms feedback=ok
+lr110: parity=ok free=34ms ref=42ms hard(52 keys)=36ms feedback=ok
+lr111: parity=ok free=42ms ref=34ms hard(54 keys)=36ms feedback=ok
+lr112: parity=ok free=26ms ref=27ms hard(53 keys)=32ms feedback=ok
+lrc101: parity=ok free=27ms ref=39ms hard(53 keys)=51ms feedback=ok
+lrc102: parity=ok free=34ms ref=42ms hard(53 keys)=34ms feedback=ok
+lrc103: parity=ok free=40ms ref=28ms hard(53 keys)=24ms feedback=ok
+lrc104: parity=ok free=38ms ref=34ms hard(54 keys)=40ms feedback=ok
+lrc105: parity=ok free=35ms ref=34ms hard(54 keys)=35ms feedback=ok
+lrc106: parity=ok free=41ms ref=39ms hard(53 keys)=44ms feedback=ok
+lrc107: parity=ok free=31ms ref=28ms hard(53 keys)=50ms feedback=ok
+lrc108: parity=ok free=46ms ref=34ms hard(52 keys)=49ms feedback=ok
+
+key-free parity feature vs reference: 58/58
+key-free timing feature/reference geomean: 0.97
+feed-back (tightest satisfiable keys): 58/58 clean
+hard-key timing vs key-free geomean: 1.05
