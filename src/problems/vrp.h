@@ -11,8 +11,13 @@ All rights reserved (see LICENSE).
 */
 
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
+#include <limits>
+#include <memory>
 #include <mutex>
 #include <numeric>
+#include <optional>
 #include <ranges>
 #include <semaphore>
 #include <set>
@@ -81,15 +86,13 @@ template <class Route> struct SolvingContext {
   }
 };
 
-template <class Route, class LocalSearch>
-void run_single_search(const Input& input,
-                       const HeuristicParameters& p,
-                       const unsigned rank,
-                       const unsigned depth,
-                       const Timeout& search_time,
-                       SolvingContext<Route>& context) {
-  const auto heuristic_start = utils::now();
-
+// Build the heuristic solution for search at rank. Returns false when it
+// duplicates the heuristic solution of another search.
+template <class Route>
+bool run_heuristic(const Input& input,
+                   const HeuristicParameters& p,
+                   const unsigned rank,
+                   SolvingContext<Route>& context) {
   Eval h_eval;
   switch (p.heuristic) {
   case HEURISTIC::BASIC:
@@ -149,12 +152,24 @@ void run_single_search(const Input& input,
   context.sol_indicators[rank] =
     utils::SolutionIndicators(input, context.solutions[rank]);
 
-  const auto heuristic_end = utils::now();
+  return !context.heuristic_solution_already_found(rank);
+}
 
-  if (context.heuristic_solution_already_found(rank)) {
+template <class Route, class LocalSearch>
+void run_single_search(const Input& input,
+                       const HeuristicParameters& p,
+                       const unsigned rank,
+                       const unsigned depth,
+                       const Timeout& search_time,
+                       SolvingContext<Route>& context) {
+  const auto heuristic_start = utils::now();
+
+  if (!run_heuristic<Route>(input, p, rank, context)) {
     // Duplicate heuristic solution, so skip local search.
     return;
   }
+
+  const auto heuristic_end = utils::now();
 
   Timeout ls_search_time;
   if (search_time.has_value()) {
@@ -178,10 +193,215 @@ void run_single_search(const Input& input,
   context.sol_indicators[rank] = ls.indicators();
 }
 
+// Number of searches kept after checkpoint k when pruning progressively:
+// all of them after the first descent, then alternately 3/4 and 1/2 of
+// that, e.g. 32, 24, 16, 12, 8 for 32 searches.
+inline unsigned nb_kept_searches(unsigned nb_searches, unsigned k) {
+  const unsigned halved = nb_searches >> (k / 2);
+  return std::max(1u, (k % 2 == 0) ? halved : 3 * halved / 4);
+}
+
 class VRP {
   // Abstract class describing a VRP (vehicle routing problem).
 protected:
   const Input& _input;
+
+  // Searches deepen together and are pruned along the way. Checkpoint k
+  // is reached when a search completes depth k (k = 0 being the end of
+  // the first descent). Once all remaining searches reached checkpoint
+  // k, only the best nb_kept_searches(k) of them carry on. Idle threads
+  // never wait for a checkpoint: they advance the best-ranked searches
+  // that already reached it, and a search pruned while running is
+  // stopped. Pruning only depends on the indicators at each checkpoint,
+  // so the solution does not depend on the number of threads.
+  template <class Route, class LocalSearch>
+  Solution
+  solve_progressive(const unsigned nb_searches,
+                    const unsigned depth,
+                    const unsigned nb_threads,
+                    const std::vector<HeuristicParameters>& parameters) const {
+    constexpr unsigned UNBOUNDED = std::numeric_limits<unsigned>::max();
+
+    SolvingContext<Route> context(_input, nb_searches);
+    std::vector<std::unique_ptr<LocalSearch>> searches(nb_searches);
+    // Number of checkpoints reached by each search, depth + 1 once its
+    // climb is over.
+    std::vector<unsigned> reached(nb_searches, 0);
+    std::vector<std::vector<utils::SolutionIndicators>>
+      at_checkpoint(nb_searches, std::vector<utils::SolutionIndicators>(depth));
+    std::vector<char> started(nb_searches, 0);
+    std::vector<char> alive(nb_searches, 1);
+    std::vector<char> running(nb_searches, 0);
+    std::vector<std::atomic<bool>> stop(nb_searches);
+
+    // Checkpoint whose pruning comes next, depth once all are done.
+    unsigned stage = 0;
+    bool done = false;
+    std::exception_ptr ep = nullptr;
+    std::mutex m;
+    std::condition_variable cv;
+
+    // All functions below are called with the lock held.
+    auto release = [&](unsigned rank) {
+      searches[rank].reset();
+      context.solutions[rank] = std::vector<Route>();
+    };
+
+    auto prune = [&]() {
+      while (!done) {
+        for (unsigned rank = 0; rank < nb_searches; ++rank) {
+          if (alive[rank] && reached[rank] <= stage) {
+            return;
+          }
+        }
+        if (stage == depth) {
+          done = true;
+          return;
+        }
+        std::vector<unsigned> live;
+        for (unsigned rank = 0; rank < nb_searches; ++rank) {
+          if (alive[rank]) {
+            live.push_back(rank);
+          }
+        }
+        std::ranges::stable_sort(live, [&](unsigned a, unsigned b) {
+          return at_checkpoint[a][stage] < at_checkpoint[b][stage];
+        });
+        for (std::size_t i = nb_kept_searches(nb_searches, stage);
+             i < live.size();
+             ++i) {
+          const auto rank = live[i];
+          alive[rank] = 0;
+          stop[rank] = true;
+          if (!running[rank]) {
+            release(rank);
+          }
+        }
+        ++stage;
+      }
+    };
+
+    // Next (rank, checkpoint to run to): searches still short of the
+    // current checkpoint first, then the best-ranked one that already
+    // reached it.
+    auto pick = [&]() -> std::optional<std::pair<unsigned, unsigned>> {
+      const auto target = [&](unsigned k) {
+        return (k < depth) ? k : UNBOUNDED;
+      };
+      for (unsigned rank = 0; rank < nb_searches; ++rank) {
+        if (alive[rank] && !running[rank] && reached[rank] <= stage) {
+          return std::make_pair(rank, target(stage));
+        }
+      }
+      std::optional<unsigned> best;
+      for (unsigned rank = 0; rank < nb_searches; ++rank) {
+        if (alive[rank] && !running[rank] && reached[rank] == stage + 1 &&
+            stage < depth &&
+            (!best.has_value() ||
+             at_checkpoint[rank][stage] < at_checkpoint[*best][stage])) {
+          best = rank;
+        }
+      }
+      if (!best.has_value()) {
+        return std::nullopt;
+      }
+      return std::make_pair(*best, target(stage + 1));
+    };
+
+    auto worker = [&]() {
+      std::unique_lock<std::mutex> lock(m);
+      while (true) {
+        std::optional<std::pair<unsigned, unsigned>> task;
+        cv.wait(lock, [&] { return done || (task = pick()).has_value(); });
+        if (done) {
+          return;
+        }
+        const auto [rank, until] = *task;
+        running[rank] = 1;
+        lock.unlock();
+
+        bool unique = true;
+        bool paused = false;
+        try {
+          if (!started[rank]) {
+            // Only the thread running this search writes started[rank].
+            unique =
+              run_heuristic<Route>(_input, parameters[rank], rank, context);
+            if (unique) {
+              searches[rank] =
+                std::make_unique<LocalSearch>(_input,
+                                              context.solutions[rank],
+                                              depth,
+                                              Timeout());
+            }
+          }
+          if (unique) {
+            paused = searches[rank]->run_until(until, &stop[rank]);
+          }
+        } catch (...) {
+          lock.lock();
+          ep = std::current_exception();
+          done = true;
+          for (auto& s : stop) {
+            s = true;
+          }
+          cv.notify_all();
+          return;
+        }
+
+        lock.lock();
+        running[rank] = 0;
+        started[rank] = 1;
+        if (!unique) {
+          // Duplicate heuristic solution: no local search.
+          alive[rank] = 0;
+          release(rank);
+        } else if (!alive[rank]) {
+          // Pruned while running.
+          release(rank);
+        } else {
+          const auto indicators = searches[rank]->indicators();
+          if (paused) {
+            at_checkpoint[rank][until] = indicators;
+            reached[rank] = until + 1;
+          } else {
+            // Climb over: same indicators at every later checkpoint.
+            for (unsigned k = reached[rank]; k < depth; ++k) {
+              at_checkpoint[rank][k] = indicators;
+            }
+            reached[rank] = depth + 1;
+            context.sol_indicators[rank] = indicators;
+            searches[rank].reset();
+          }
+        }
+        prune();
+        cv.notify_all();
+      }
+    };
+
+    {
+      std::vector<std::jthread> pool;
+      pool.reserve(nb_threads);
+      for (unsigned t = 0; t < std::max(1u, nb_threads); ++t) {
+        pool.emplace_back(worker);
+      }
+    }
+
+    if (ep != nullptr) {
+      std::rethrow_exception(ep);
+    }
+
+    std::optional<unsigned> best;
+    for (unsigned rank = 0; rank < nb_searches; ++rank) {
+      if (alive[rank] &&
+          (!best.has_value() ||
+           context.sol_indicators[rank] < context.sol_indicators[*best])) {
+        best = rank;
+      }
+    }
+    assert(best.has_value());
+    return utils::format_solution(_input, context.solutions[*best]);
+  }
 
   template <class Route, class LocalSearch>
   Solution solve(
@@ -197,6 +417,13 @@ protected:
     assert(nb_searches != 0);
     nb_searches =
       std::min(nb_searches, static_cast<unsigned>(parameters.size()));
+
+    if (!timeout.has_value() && depth > 0) {
+      return solve_progressive<Route, LocalSearch>(nb_searches,
+                                                   depth,
+                                                   nb_threads,
+                                                   parameters);
+    }
 
     SolvingContext<Route> context(_input, nb_searches);
 

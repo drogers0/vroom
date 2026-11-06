@@ -413,6 +413,9 @@ void LocalSearch<Route,
     if (_deadline.has_value() && _deadline.value() < utils::now()) {
       break;
     }
+    if (_stop != nullptr && _stop->load(std::memory_order_relaxed)) {
+      break;
+    }
 
     if (_input.has_jobs()) {
       // Move(s) that don't make sense for shipment-only instances.
@@ -1955,7 +1958,7 @@ template <class Route,
           class RouteSplit,
           class PriorityReplace,
           class TSPFix>
-void LocalSearch<Route,
+bool LocalSearch<Route,
                  UnassignedExchange,
                  CrossExchange,
                  MixedExchange,
@@ -1974,12 +1977,18 @@ void LocalSearch<Route,
                  SwapStar,
                  RouteSplit,
                  PriorityReplace,
-                 TSPFix>::run() {
-  bool try_ls_step = true;
+                 TSPFix>::run_until(unsigned until,
+                                    const std::atomic<bool>* stop) {
+  _stop = stop;
 
-  while (try_ls_step) {
+  while (_try_ls_step) {
     // A round of local search.
     run_ls_step();
+
+    if (_stop != nullptr && _stop->load(std::memory_order_relaxed)) {
+      _try_ls_step = false;
+      return false;
+    }
 
     // Comparison with indicators for current solution.
     if (const utils::SolutionIndicators current_sol_indicators(_input, _sol);
@@ -2010,10 +2019,10 @@ void LocalSearch<Route,
     // level or deadline is met.
     assert(_completed_depth.has_value());
     auto nb_removal = _completed_depth.value() + 1;
-    try_ls_step = (nb_removal <= _depth) &&
-                  (!_deadline.has_value() || utils::now() < _deadline.value());
+    _try_ls_step = (nb_removal <= _depth) &&
+                   (!_deadline.has_value() || utils::now() < _deadline.value());
 
-    if (try_ls_step) {
+    if (_try_ls_step) {
       // Get a looser situation by removing jobs.
       for (unsigned i = 0; i < nb_removal; ++i) {
         remove_from_routes();
@@ -2041,8 +2050,14 @@ void LocalSearch<Route,
       // Refill jobs.
       constexpr double refill_regret = 1.5;
       try_job_additions(_all_routes, refill_regret);
+
+      if (_completed_depth.value() >= until) {
+        return true;
+      }
     }
   }
+
+  return false;
 }
 
 template <class Route,

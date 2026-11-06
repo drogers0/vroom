@@ -10,6 +10,9 @@ All rights reserved (see LICENSE).
 
 */
 
+#include <atomic>
+#include <limits>
+
 #include "structures/vroom/solution_indicators.h"
 #include "structures/vroom/solution_state.h"
 
@@ -44,6 +47,8 @@ private:
   const Deadline _deadline;
 
   std::optional<unsigned> _completed_depth;
+  bool _try_ls_step{true};
+  const std::atomic<bool>* _stop{nullptr};
   std::vector<Index> _all_routes;
 
   utils::SolutionState _sol_state;
@@ -79,7 +84,15 @@ public:
 
   utils::SolutionIndicators indicators() const;
 
-  void run();
+  void run() {
+    run_until(std::numeric_limits<unsigned>::max());
+  }
+
+  // Climb until the completed depth reaches until, then pause: a later
+  // call resumes exactly where this one stopped. Returns true when paused
+  // with deeper steps left, false once the climb is over or after stop is
+  // set (the search state is then left unfinished).
+  bool run_until(unsigned until, const std::atomic<bool>* stop = nullptr);
 };
 
 } // namespace vroom::ls
