@@ -14,7 +14,6 @@ All rights reserved (see LICENSE).
 #include <atomic>
 #include <condition_variable>
 #include <limits>
-#include <memory>
 #include <mutex>
 #include <numeric>
 #include <optional>
@@ -194,10 +193,10 @@ void run_single_search(const Input& input,
 }
 
 // Number of searches kept after checkpoint k when pruning progressively:
-// all of them after the first descent, then alternately 3/4 and 1/2 of
-// that, e.g. 32, 24, 16, 12, 8 for 32 searches.
+// halved every two checkpoints, with an intermediate 3/4 step, e.g. 32,
+// 24, 16, 12, 8 for 32 searches.
 inline unsigned nb_kept_searches(unsigned nb_searches, unsigned k) {
-  const unsigned halved = nb_searches >> (k / 2);
+  const unsigned halved = (k / 2 < 32) ? nb_searches >> (k / 2) : 0;
   return std::max(1u, (k % 2 == 0) ? halved : 3 * halved / 4);
 }
 
@@ -209,11 +208,13 @@ protected:
   // Searches deepen together and are pruned along the way. Checkpoint k
   // is reached when a search completes depth k (k = 0 being the end of
   // the first descent). Once all remaining searches reached checkpoint
-  // k, only the best nb_kept_searches(k) of them carry on. Idle threads
-  // never wait for a checkpoint: they advance the best-ranked searches
-  // that already reached it, and a search pruned while running is
-  // stopped. Pruning only depends on the indicators at each checkpoint,
-  // so the solution does not depend on the number of threads.
+  // k, only the best nb_kept_searches(k) of them carry on. While waiting
+  // for that, idle threads advance the best-ranked searches that already
+  // reached checkpoint k towards checkpoint k + 1, and a search pruned
+  // while running is stopped. Pruning only depends on the indicators at
+  // each checkpoint, so as with the other solving path, the number of
+  // threads only matters through which of two heuristic solutions with
+  // equal indicators is seen first.
   template <class Route, class LocalSearch>
   Solution
   solve_progressive(const unsigned nb_searches,
@@ -223,15 +224,13 @@ protected:
     constexpr unsigned UNBOUNDED = std::numeric_limits<unsigned>::max();
 
     SolvingContext<Route> context(_input, nb_searches);
-    std::vector<std::unique_ptr<LocalSearch>> searches(nb_searches);
     // Number of checkpoints reached by each search, depth + 1 once its
     // climb is over.
     std::vector<unsigned> reached(nb_searches, 0);
     std::vector<std::vector<utils::SolutionIndicators>>
       at_checkpoint(nb_searches, std::vector<utils::SolutionIndicators>(depth));
-    std::vector<char> started(nb_searches, 0);
-    std::vector<char> alive(nb_searches, 1);
     std::vector<char> running(nb_searches, 0);
+    // Set for searches that are pruned or duplicates.
     std::vector<std::atomic<bool>> stop(nb_searches);
 
     // Checkpoint whose pruning comes next, depth once all are done.
@@ -243,14 +242,13 @@ protected:
 
     // All functions below are called with the lock held.
     auto release = [&](unsigned rank) {
-      searches[rank].reset();
       context.solutions[rank] = std::vector<Route>();
     };
 
     auto prune = [&]() {
       while (!done) {
         for (unsigned rank = 0; rank < nb_searches; ++rank) {
-          if (alive[rank] && reached[rank] <= stage) {
+          if (!stop[rank] && reached[rank] <= stage) {
             return;
           }
         }
@@ -260,7 +258,7 @@ protected:
         }
         std::vector<unsigned> live;
         for (unsigned rank = 0; rank < nb_searches; ++rank) {
-          if (alive[rank]) {
+          if (!stop[rank]) {
             live.push_back(rank);
           }
         }
@@ -271,7 +269,6 @@ protected:
              i < live.size();
              ++i) {
           const auto rank = live[i];
-          alive[rank] = 0;
           stop[rank] = true;
           if (!running[rank]) {
             release(rank);
@@ -289,13 +286,13 @@ protected:
         return (k < depth) ? k : UNBOUNDED;
       };
       for (unsigned rank = 0; rank < nb_searches; ++rank) {
-        if (alive[rank] && !running[rank] && reached[rank] <= stage) {
+        if (!stop[rank] && !running[rank] && reached[rank] <= stage) {
           return std::make_pair(rank, target(stage));
         }
       }
       std::optional<unsigned> best;
       for (unsigned rank = 0; rank < nb_searches; ++rank) {
-        if (alive[rank] && !running[rank] && reached[rank] == stage + 1 &&
+        if (!stop[rank] && !running[rank] && reached[rank] == stage + 1 &&
             stage < depth &&
             (!best.has_value() ||
              at_checkpoint[rank][stage] < at_checkpoint[*best][stage])) {
@@ -317,26 +314,30 @@ protected:
           return;
         }
         const auto [rank, until] = *task;
+        const auto from = reached[rank];
         running[rank] = 1;
         lock.unlock();
 
+        // Between checkpoints, a search is only its best solution in
+        // context.solutions and the depth it completed, so at most one
+        // local search per thread is held in memory.
         bool unique = true;
         bool paused = false;
+        utils::SolutionIndicators indicators;
         try {
-          if (!started[rank]) {
-            // Only the thread running this search writes started[rank].
+          if (from == 0) {
             unique =
               run_heuristic<Route>(_input, parameters[rank], rank, context);
-            if (unique) {
-              searches[rank] =
-                std::make_unique<LocalSearch>(_input,
-                                              context.solutions[rank],
-                                              depth,
-                                              Timeout());
-            }
           }
           if (unique) {
-            paused = searches[rank]->run_until(until, &stop[rank]);
+            LocalSearch ls(_input,
+                           context.solutions[rank],
+                           depth,
+                           Timeout(),
+                           (from == 0) ? std::nullopt
+                                       : std::optional<unsigned>(from - 1));
+            paused = ls.run(until, &stop[rank]);
+            indicators = ls.indicators();
           }
         } catch (...) {
           lock.lock();
@@ -351,27 +352,27 @@ protected:
 
         lock.lock();
         running[rank] = 0;
-        started[rank] = 1;
+        if (done) {
+          // Another search threw.
+          cv.notify_all();
+          return;
+        }
         if (!unique) {
           // Duplicate heuristic solution: no local search.
-          alive[rank] = 0;
+          stop[rank] = true;
           release(rank);
-        } else if (!alive[rank]) {
+        } else if (stop[rank]) {
           // Pruned while running.
           release(rank);
         } else {
-          const auto indicators = searches[rank]->indicators();
           if (paused) {
             at_checkpoint[rank][until] = indicators;
             reached[rank] = until + 1;
           } else {
-            // Climb over: same indicators at every later checkpoint.
-            for (unsigned k = reached[rank]; k < depth; ++k) {
-              at_checkpoint[rank][k] = indicators;
-            }
+            // Climb over, only ever run to past the last checkpoint.
+            assert(reached[rank] == depth);
             reached[rank] = depth + 1;
             context.sol_indicators[rank] = indicators;
-            searches[rank].reset();
           }
         }
         prune();
@@ -380,9 +381,10 @@ protected:
     };
 
     {
+      const auto nb_workers = std::clamp(nb_threads, 1u, nb_searches);
       std::vector<std::jthread> pool;
-      pool.reserve(nb_threads);
-      for (unsigned t = 0; t < std::max(1u, nb_threads); ++t) {
+      pool.reserve(nb_workers);
+      for (unsigned t = 0; t < nb_workers; ++t) {
         pool.emplace_back(worker);
       }
     }
@@ -393,7 +395,7 @@ protected:
 
     std::optional<unsigned> best;
     for (unsigned rank = 0; rank < nb_searches; ++rank) {
-      if (alive[rank] &&
+      if (!stop[rank] &&
           (!best.has_value() ||
            context.sol_indicators[rank] < context.sol_indicators[*best])) {
         best = rank;

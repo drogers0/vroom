@@ -76,12 +76,14 @@ LocalSearch<Route,
             TSPFix>::LocalSearch(const Input& input,
                                  std::vector<Route>& sol,
                                  unsigned depth,
-                                 const Timeout& timeout)
+                                 const Timeout& timeout,
+                                 std::optional<unsigned> completed_depth)
   : _input(input),
     _nb_vehicles(_input.vehicles.size()),
     _depth(depth),
     _deadline(timeout.has_value() ? utils::now() + timeout.value()
                                   : Deadline()),
+    _completed_depth(completed_depth),
     _all_routes(_nb_vehicles),
     _sol_state(input),
     _sol(sol),
@@ -1958,6 +1960,77 @@ template <class Route,
           class RouteSplit,
           class PriorityReplace,
           class TSPFix>
+void LocalSearch<Route,
+                 UnassignedExchange,
+                 CrossExchange,
+                 MixedExchange,
+                 TwoOpt,
+                 ReverseTwoOpt,
+                 Relocate,
+                 OrOpt,
+                 IntraExchange,
+                 IntraCrossExchange,
+                 IntraMixedExchange,
+                 IntraRelocate,
+                 IntraOrOpt,
+                 IntraTwoOpt,
+                 PDShift,
+                 RouteExchange,
+                 SwapStar,
+                 RouteSplit,
+                 PriorityReplace,
+                 TSPFix>::ruin_and_recreate() {
+  const auto nb_removal = _completed_depth.value() + 1;
+
+  // Get a looser situation by removing jobs.
+  for (unsigned i = 0; i < nb_removal; ++i) {
+    remove_from_routes();
+    for (std::size_t v = 0; v < _sol.size(); ++v) {
+      // Update what is required for consistency in
+      // remove_from_route.
+      _sol_state.update_costs(_sol[v]);
+      _sol_state.update_route_eval(_sol[v]);
+      _sol_state.update_route_bbox(_sol[v]);
+      _sol_state.set_node_gains(_sol[v]);
+      _sol_state.set_pd_matching_ranks(_sol[v]);
+      _sol_state.set_pd_gains(_sol[v]);
+    }
+  }
+
+  // Update stored data that has not been maintained while
+  // removing.
+  for (std::size_t v = 0; v < _sol.size(); ++v) {
+    _sol_state.update_skills(_sol[v]);
+    _sol_state.update_priorities(_sol[v]);
+    _sol_state.set_insertion_ranks(_sol[v]);
+    _sol_state.set_edge_gains(_sol[v]);
+  }
+
+  // Refill jobs.
+  constexpr double refill_regret = 1.5;
+  try_job_additions(_all_routes, refill_regret);
+}
+
+template <class Route,
+          class UnassignedExchange,
+          class CrossExchange,
+          class MixedExchange,
+          class TwoOpt,
+          class ReverseTwoOpt,
+          class Relocate,
+          class OrOpt,
+          class IntraExchange,
+          class IntraCrossExchange,
+          class IntraMixedExchange,
+          class IntraRelocate,
+          class IntraOrOpt,
+          class IntraTwoOpt,
+          class PDShift,
+          class RouteExchange,
+          class SwapStar,
+          class RouteSplit,
+          class PriorityReplace,
+          class TSPFix>
 bool LocalSearch<Route,
                  UnassignedExchange,
                  CrossExchange,
@@ -1977,16 +2050,19 @@ bool LocalSearch<Route,
                  SwapStar,
                  RouteSplit,
                  PriorityReplace,
-                 TSPFix>::run_until(unsigned until,
-                                    const std::atomic<bool>* stop) {
+                 TSPFix>::run(unsigned until, const std::atomic<bool>* stop) {
   _stop = stop;
 
-  while (_try_ls_step) {
+  if (_completed_depth.has_value()) {
+    // Resuming a paused search.
+    ruin_and_recreate();
+  }
+
+  while (true) {
     // A round of local search.
     run_ls_step();
 
     if (_stop != nullptr && _stop->load(std::memory_order_relaxed)) {
-      _try_ls_step = false;
       return false;
     }
 
@@ -2018,46 +2094,16 @@ bool LocalSearch<Route,
     // Try again on each improvement until we reach last job removal
     // level or deadline is met.
     assert(_completed_depth.has_value());
-    auto nb_removal = _completed_depth.value() + 1;
-    _try_ls_step = (nb_removal <= _depth) &&
-                   (!_deadline.has_value() || utils::now() < _deadline.value());
-
-    if (_try_ls_step) {
-      // Get a looser situation by removing jobs.
-      for (unsigned i = 0; i < nb_removal; ++i) {
-        remove_from_routes();
-        for (std::size_t v = 0; v < _sol.size(); ++v) {
-          // Update what is required for consistency in
-          // remove_from_route.
-          _sol_state.update_costs(_sol[v]);
-          _sol_state.update_route_eval(_sol[v]);
-          _sol_state.update_route_bbox(_sol[v]);
-          _sol_state.set_node_gains(_sol[v]);
-          _sol_state.set_pd_matching_ranks(_sol[v]);
-          _sol_state.set_pd_gains(_sol[v]);
-        }
-      }
-
-      // Update stored data that has not been maintained while
-      // removing.
-      for (std::size_t v = 0; v < _sol.size(); ++v) {
-        _sol_state.update_skills(_sol[v]);
-        _sol_state.update_priorities(_sol[v]);
-        _sol_state.set_insertion_ranks(_sol[v]);
-        _sol_state.set_edge_gains(_sol[v]);
-      }
-
-      // Refill jobs.
-      constexpr double refill_regret = 1.5;
-      try_job_additions(_all_routes, refill_regret);
-
-      if (_completed_depth.value() >= until) {
-        return true;
-      }
+    if (_completed_depth.value() + 1 > _depth ||
+        (_deadline.has_value() && _deadline.value() <= utils::now())) {
+      return false;
     }
-  }
+    if (_completed_depth.value() >= until) {
+      return true;
+    }
 
-  return false;
+    ruin_and_recreate();
+  }
 }
 
 template <class Route,

@@ -47,7 +47,6 @@ private:
   const Deadline _deadline;
 
   std::optional<unsigned> _completed_depth;
-  bool _try_ls_step{true};
   const std::atomic<bool>* _stop{nullptr};
   std::vector<Index> _all_routes;
 
@@ -76,23 +75,26 @@ private:
 
   void remove_from_routes();
 
+  // Remove jobs and refill, ahead of the next deepening step.
+  void ruin_and_recreate();
+
 public:
+  // With completed_depth set, tw_sol is the best solution of a search
+  // paused once that depth was completed (see run), and the climb resumes
+  // from there.
   LocalSearch(const Input& input,
               std::vector<Route>& tw_sol,
               unsigned depth,
-              const Timeout& timeout);
+              const Timeout& timeout,
+              std::optional<unsigned> completed_depth = std::nullopt);
 
   utils::SolutionIndicators indicators() const;
 
-  void run() {
-    run_until(std::numeric_limits<unsigned>::max());
-  }
-
-  // Climb until the completed depth reaches until, then pause: a later
-  // call resumes exactly where this one stopped. Returns true when paused
-  // with deeper steps left, false once the climb is over or after stop is
-  // set (the search state is then left unfinished).
-  bool run_until(unsigned until, const std::atomic<bool>* stop = nullptr);
+  // Climb until the completed depth reaches until. Returns true when
+  // pausing there with deeper steps left, false once the climb is over or
+  // after stop is set (the search is then left unfinished).
+  bool run(unsigned until = std::numeric_limits<unsigned>::max(),
+           const std::atomic<bool>* stop = nullptr);
 };
 
 } // namespace vroom::ls
