@@ -85,10 +85,10 @@ template <class Route> struct SolvingContext {
   }
 };
 
-// Build the heuristic solution for search at rank. Returns false when it
-// duplicates the heuristic solution of another search.
+// Build the heuristic solution for search at rank and store its
+// indicators.
 template <class Route>
-bool run_heuristic(const Input& input,
+void run_heuristic(const Input& input,
                    const HeuristicParameters& p,
                    const unsigned rank,
                    SolvingContext<Route>& context) {
@@ -147,11 +147,8 @@ bool run_heuristic(const Input& input,
     }
   }
 
-  // Check if heuristic solution has been encountered before.
   context.sol_indicators[rank] =
     utils::SolutionIndicators(input, context.solutions[rank]);
-
-  return !context.heuristic_solution_already_found(rank);
 }
 
 template <class Route, class LocalSearch>
@@ -163,12 +160,15 @@ void run_single_search(const Input& input,
                        SolvingContext<Route>& context) {
   const auto heuristic_start = utils::now();
 
-  if (!run_heuristic<Route>(input, p, rank, context)) {
+  run_heuristic<Route>(input, p, rank, context);
+
+  const auto heuristic_end = utils::now();
+
+  // Check if heuristic solution has been encountered before.
+  if (context.heuristic_solution_already_found(rank)) {
     // Duplicate heuristic solution, so skip local search.
     return;
   }
-
-  const auto heuristic_end = utils::now();
 
   Timeout ls_search_time;
   if (search_time.has_value()) {
@@ -196,6 +196,7 @@ void run_single_search(const Input& input,
 // halved every two checkpoints, with an intermediate 3/4 step, e.g. 32,
 // 24, 16, 12, 8 for 32 searches.
 inline unsigned nb_kept_searches(unsigned nb_searches, unsigned k) {
+  // Depth is not bounded for library users, so guard the shift.
   const unsigned halved = (k / 2 < 32) ? nb_searches >> (k / 2) : 0;
   return std::max(1u, (k % 2 == 0) ? halved : 3 * halved / 4);
 }
@@ -214,7 +215,9 @@ protected:
   // while running is stopped. Pruning only depends on the indicators at
   // each checkpoint, so as with the other solving path, the number of
   // threads only matters through which of two heuristic solutions with
-  // equal indicators is seen first.
+  // equal indicators is seen first. A paused search resumes from its best
+  // solution, where an uninterrupted climb would carry on from a current
+  // solution with exactly equal indicators.
   template <class Route, class LocalSearch>
   Solution
   solve_progressive(const unsigned nb_searches,
@@ -233,14 +236,14 @@ protected:
     // Set for searches that are pruned or duplicates.
     std::vector<std::atomic<bool>> stop(nb_searches);
 
-    // Checkpoint whose pruning comes next, depth once all are done.
+    // Checkpoint whose pruning comes next, depth once no cut is left.
     unsigned stage = 0;
     bool done = false;
     std::exception_ptr ep = nullptr;
     std::mutex m;
     std::condition_variable cv;
 
-    // All functions below are called with the lock held.
+    // release, prune and pick are called with the lock held.
     auto release = [&](unsigned rank) {
       context.solutions[rank] = std::vector<Route>();
     };
@@ -323,11 +326,11 @@ protected:
         // local search per thread is held in memory.
         bool unique = true;
         bool paused = false;
-        utils::SolutionIndicators indicators;
+        utils::SolutionIndicators indicators{};
         try {
           if (from == 0) {
-            unique =
-              run_heuristic<Route>(_input, parameters[rank], rank, context);
+            run_heuristic<Route>(_input, parameters[rank], rank, context);
+            unique = !context.heuristic_solution_already_found(rank);
           }
           if (unique) {
             LocalSearch ls(_input,
@@ -420,7 +423,10 @@ protected:
     nb_searches =
       std::min(nb_searches, static_cast<unsigned>(parameters.size()));
 
-    if (!timeout.has_value() && depth > 0) {
+    // Prune progressively unless running against a timeout or no cut
+    // would ever drop a search (e.g. -x 1).
+    if (!timeout.has_value() && depth > 0 &&
+        nb_kept_searches(nb_searches, depth - 1) < nb_searches) {
       return solve_progressive<Route, LocalSearch>(nb_searches,
                                                    depth,
                                                    nb_threads,
