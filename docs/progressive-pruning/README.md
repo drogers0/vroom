@@ -4,13 +4,13 @@ With progressive pruning, every search still builds its heuristic solution and r
 
 | `-x` | Searches | Depth | Searches kept after the descent, then after each deepening step |
 |---|---|---|---|
-| 1 | 8 | 1 | 8 |
+| 1 | 8 | 1 | 8 (nothing to cut: master's code path) |
 | 2 | 12 | 2 | 12, 9 |
 | 3 | 16 | 3 | 16, 12, 8 |
 | 4 | 24 | 4 | 24, 18, 12, 9 |
 | 5 | 32 | 5 | 32, 24, 16, 12, 8 |
 
-"Best" uses the existing solution comparison: fewest unassigned tasks, then cost. Threads that would otherwise wait for a cut keep advancing the best-ranked searches, and a search cut while running is stopped. The cuts only look at each search's own score at that depth, so the result does not depend on the number of threads. Runs with a timeout (`-l`) and `-x 0` take the existing code path unchanged.
+"Best" uses the existing solution comparison: priority served, then tasks assigned, then cost, and so on. Threads that would otherwise wait for a cut keep advancing the best-ranked searches, and a search cut while running is stopped. The cuts only look at each search's own score at that depth, so the thread count matters no more than on master: only through which of two heuristic solutions with equal scores is seen first. Runs with a timeout (`-l`), `-x 0` and `-x 1` take the existing code path unchanged.
 
 ## Setup
 
@@ -25,27 +25,27 @@ With progressive pruning, every search still builds its heuristic solution and r
 
 ![Wall time vs master at the same -x](time.png)
 
-At `-x 3` to `-x 5` the gain grows with the level, reaching 0.55x to 0.67x at `-x 5`. At `-x 2` it is 0.85x to 0.97x. `-x 1` keeps every search, so there is nothing to prune, and the coordination costs 1% to 9%.
+At `-x 3` to `-x 5` the gain grows with the level, reaching 0.55x to 0.67x at `-x 5`. At `-x 2` it is 0.85x to 0.97x. `-x 1` has nothing to cut and runs master's code path.
 
 ## Quality
 
 ![Cost and trips served vs master at the same -x](quality.png)
 
-Pruning can only drop searches master would have kept, so a solution is never better than master's. On most instances it is identical. Where it differs, the difference is small compared with master's own run-to-run variation: the grey box shows master `-x 5` on three shuffled input orders of the same instances.
+Pruning can only drop searches master would have kept, so apart from exact ties a solution is never better than master's. On most instances it is identical. Where it differs, the difference is small compared with master's own run-to-run variation: the grey box shows master `-x 5` on three shuffled input orders of the same instances.
 
 | Instances | -x | Wall time vs master (median) | Mean cost change | Instances changed | Instances above +0.5% |
 |---|---|---|---|---|---|
-| Small (about 200 shipments) | 1 | 1.09x | +0.00% | 0 of 12 | 0 |
+| Small (about 200 shipments) | 1 | 1.00x | +0.00% | 0 of 12 | 0 |
 | Small (about 200 shipments) | 2 | 0.97x | +0.08% | 1 of 12 | 1 |
 | Small (about 200 shipments) | 3 | 0.88x | +0.16% | 1 of 12 | 1 |
 | Small (about 200 shipments) | 4 | 0.74x | +0.09% | 2 of 12 | 1 |
 | Small (about 200 shipments) | 5 | 0.66x | +0.05% | 1 of 12 | 1 |
-| Large (about 500 shipments) | 1 | 1.04x | +0.00% | 0 of 18 | 0 |
+| Large (about 500 shipments) | 1 | 1.00x | +0.00% | 0 of 18 | 0 |
 | Large (about 500 shipments) | 2 | 0.90x | +0.00% | 0 of 18 | 0 |
 | Large (about 500 shipments) | 3 | 0.76x | +0.12% | 3 of 18 | 2 |
 | Large (about 500 shipments) | 4 | 0.63x | +0.35% | 5 of 18 | 3 |
 | Large (about 500 shipments) | 5 | 0.55x | +0.24% | 6 of 18 | 5 |
-| 1,500 shipments | 1 | 1.01x | +0.00% | 0 of 8 | 0 |
+| 1,500 shipments | 1 | 1.00x | +0.00% | 0 of 8 | 0 |
 | 1,500 shipments | 2 | 0.85x | +0.02% | 1 of 8 | 0 |
 | 1,500 shipments | 3 | 0.75x | +0.00% | 0 of 8 | 0 |
 | 1,500 shipments | 4 | 0.68x | +0.00% | 0 of 8 | 0 |
@@ -62,7 +62,7 @@ Master's own variation, `-x 5` on 3 shuffled input orders vs the original order:
 
 | -x | Wall time vs master (median) | Trips served vs master (total) | Instances with fewer trips | Share of all 29,869 trips |
 |---|---|---|---|---|
-| 1 | 1.02x | +0 | 0 of 58 | 0% |
+| 1 | 1.00x | +0 | 0 of 58 | 0% |
 | 2 | 0.91x | +0 | 0 of 58 | 0% |
 | 3 | 0.84x | −24 | 6 of 58 | −0.08% |
 | 4 | 0.77x | −9 | 5 of 58 | −0.03% |
@@ -80,14 +80,14 @@ Run on this branch against a master build, on the same machine:
 
 | Check | Result |
 |---|---|
-| Same solutions as the measured prototype runs (20 instances x `-x 1` to `-x 5`) | 99 of 100 identical. LC2_10_2 (contested) at `-x 3` differs and serves 1 more trip. |
+| Same solutions as the measured prototype runs (20 instances x `-x 1` to `-x 5`) | 99 of 100 identical. LC2_10_2 (contested) at `-x 3` differs and serves 1 more trip: a paused search resumes from its best solution, where the prototype carried on from a current solution with exactly equal score. |
 | Same solution at 1, 2, 4, 8 and 16 threads (7 instances, `-x 5`) | identical on all 7 |
 | `-l 2` (timeout path) and `-x 0` | run as on master; `-x 0` gives the same solution |
-| Peak memory at `-x 5`, 8 threads | 0.87x to 0.89x of master (1,500 shipments: 1.89 GB vs 2.13 GB) |
-| Solving time at `-x 5`, 8 threads, same cost as master | 0.49x to 0.63x of master on 4 instances |
+| Peak memory at `-x 5`, 8 threads | 0.86x to 0.89x of master (1,500 shipments: 1.89 GB vs 2.13 GB) |
+| Solving time at `-x 5`, 8 threads, same cost as master | 0.47x to 0.62x of master on 4 instances |
 
 Between cuts, a paused search keeps only its best solution and the depth it completed, so at most one local search per thread is held in memory. Master's behaviour is the same, which is why peak memory does not grow.
 
 Master itself can return two different solutions with equal cost depending on thread count (LC1_4_1 at `-t 16`), when two heuristics produce different plans with the same score. That tie is untouched by this change.
 
-The numbers above come from the measured runs of the prototype this branch was cleaned up from. Check 1 above shows that the branch reproduces them.
+The numbers above come from the measured runs of the prototype this branch was cleaned up from, with `-x 1` taken as master since it now runs master's code. Check 1 above shows that the branch reproduces them.
